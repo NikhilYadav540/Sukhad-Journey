@@ -2,9 +2,21 @@
 
 import React, { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import dynamic from "next/dynamic";
+
+// Dynamically import with SSR completely disabled
+const LiveSafetyMap = dynamic(() => import("@/components/LiveSafetyMap"), {
+  ssr: false,
+  loading: () => (
+    <div className="h-56 w-full rounded-3xl border border-slate-200 bg-slate-100 animate-pulse flex items-center justify-center shadow-sm">
+      <span className="text-xs font-bold text-slate-400">Loading Secure Map...</span>
+    </div>
+  ),
+});
 import GuestOverviewPage from "@/components/GuestOverviewPage";
 import { SafetyHeader } from "@/components/SafetyHeader";
 import { SOSButton } from "@/components/SOSButton";
+import { MUMBAI_GRAPH, calculateOfficialFare, RouteEdge } from "@/utils/trainNetwork";
 import { MMRAreaGuide } from "@/components/MMRAreaGuide";
 import {
   MapPin,
@@ -44,27 +56,16 @@ import {
 
 // ================= MOCK DATA & DATABASES =================
 
-const MUMBAI_STATIONS = [
-  { name: "Churchgate", line: "Western", hub: false },
-  { name: "Marine Lines", line: "Western", hub: false },
-  { name: "Charni Road", line: "Western", hub: false },
-  { name: "Grant Road", line: "Western", hub: false },
-  { name: "Mumbai Central", line: "Western", hub: true },
-  { name: "Dadar", line: "Interchange (Western & Central)", hub: true },
-  { name: "Bandra", line: "Western", hub: true },
-  { name: "Andheri", line: "Western & Harbour", hub: true },
-  { name: "Borivali", line: "Western", hub: true },
-  { name: "Virar", line: "Western", hub: false },
-  { name: "CSMT (VT)", line: "Central & Harbour", hub: true },
-  { name: "Byculla", line: "Central", hub: false },
-  { name: "Kurla", line: "Interchange (Central & Harbour)", hub: true },
-  { name: "Ghatkopar", line: "Central", hub: true },
-  { name: "Thane", line: "Central", hub: true },
-  { name: "Kalyan", line: "Central", hub: true },
-  { name: "Wadala Road", line: "Harbour", hub: true },
-  { name: "Vashi", line: "Harbour", hub: true },
-  { name: "Panvel", line: "Harbour", hub: true },
-];
+// Replace your old MUMBAI_STATIONS array with this dynamic mapper:
+const MUMBAI_STATIONS = Object.keys(MUMBAI_GRAPH).map((stationName) => {
+  // Automatically detects which line it belongs to based on graph edges
+  const firstEdge = MUMBAI_GRAPH[stationName]?.[0];
+  return {
+    name: stationName,
+    line: firstEdge ? firstEdge.line : "Suburban Network",
+    hub: MUMBAI_GRAPH[stationName]?.length > 2,
+  };
+});
 
 const EMERGENCY_SERVICES = [
   {
@@ -196,7 +197,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.9,
     distance: "0.5 km",
     safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1567157577867-05ccb1388e66?auto=format&fit=crop&w=800&q=80",
+    image: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTiH_9d_mamLRPLXm1hKQWA9qzJc66ekMLmEoJoqBxuNav4Ie5MF5GTW8Y&s=10",
     description: "3.6 km long arc-shaped boulevard along the coast, famous for Queen's Necklace night views.",
     mapQuery: "Marine+Drive+Mumbai",
   },
@@ -208,7 +209,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.7,
     distance: "22.5 km",
     safetyStatus: "Patrolled Trail ✓",
-    image: "https://images.unsplash.com/photo-1628155930542-3c7a64e2c833?auto=format&fit=crop&w=800&q=80",
+    image: "https://i.pinimg.com/736x/1f/40/a2/1f40a23972312ea7e98f2cd87cbee70a.jpg",
     description: "Sprawling protected rainforest home to free-roaming leopards, flora, and scenic lakes.",
     mapQuery: "Sanjay+Gandhi+National+Park+Borivali",
   },
@@ -220,7 +221,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.8,
     distance: "25.0 km",
     safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1600100397608-f010e423b971?auto=format&fit=crop&w=800&q=80",
+    image: "https://magicalmumbaitours.com/wp-content/uploads/2023/07/kanheri-caves-2.webp",
     description: "109 ancient Buddhist rock-cut monuments inside Sanjay Gandhi National Park.",
     mapQuery: "Kanheri+Caves+Mumbai",
   },
@@ -232,7 +233,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.6,
     distance: "12.8 km",
     safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1582510003544-4d00b7f74220?auto=format&fit=crop&w=800&q=80",
+    image: "https://images.unsplash.com/photo-1567157577867-05ccb1388e66?auto=format&fit=crop&w=800&q=80",
     description: "17th-century Portuguese fort offering stunning vistas of the iconic Rajiv Gandhi Sea Link.",
     mapQuery: "Bandra+Fort+Mumbai",
   },
@@ -244,7 +245,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.8,
     distance: "32.0 km",
     safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1609949279531-cf48d64bed89?auto=format&fit=crop&w=800&q=80",
+    image: "https://dynamic-media-cdn.tripadvisor.com/media/photo-o/15/19/88/12/global-vipassana-pagoda.jpg?w=1200&h=1200&s=1",
     description: "Massive golden dome meditation hall and peace monument built on the Gorai peninsula.",
     mapQuery: "Global+Vipassana+Pagoda+Gorai",
   },
@@ -256,7 +257,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.7,
     distance: "11.0 km (Ferry Ride)",
     safetyStatus: "Patrolled Island ✓",
-    image: "https://images.unsplash.com/photo-1620802051782-725fa33f9232?auto=format&fit=crop&w=800&q=80",
+    image: "https://s7ap1.scene7.com/is/image/incredibleindia/1-elephanta-caves-mumbai-maharashtra-attr-hero?qlt=82&ts=1742184509331",
     description: "Rock-cut cave temples dedicated to Lord Shiva, accessible by boat from Gateway of India.",
     mapQuery: "Elephanta+Caves+Mumbai",
   },
@@ -268,7 +269,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.7,
     distance: "7.2 km",
     safetyStatus: "Monitored Zone ✓",
-    image: "https://images.unsplash.com/photo-1590050752117-238cb0fb12b1?auto=format&fit=crop&w=800&q=80",
+    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Mumbai_03-2016_13_Haji_Ali_Dargah.jpg/960px-Mumbai_03-2016_13_Haji_Ali_Dargah.jpg?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=thumbnail&_=20160404014614",
     description: "Historic 15th-century mosque and tomb situated on an islet connected by a narrow causeway.",
     mapQuery: "Haji+Ali+Dargah+Mumbai",
   },
@@ -292,7 +293,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.6,
     distance: "28.0 km",
     safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=800&q=80",
+    image: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRKErGwZbJBuTxhK0rpQ2PI8n0p0JDarL-JgywvkMaSOkLZ7AvDLJwRW-SP&s=10",
     description: "Serene lakeside garden nestled against the lush forest hills of Sanjay Gandhi National Park in Thane.",
     mapQuery: "Upvan+Lake+Thane",
   },
@@ -304,12 +305,11 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.6,
     distance: "30.0 km",
     safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1519331379826-f10be5486c6f?auto=format&fit=crop&w=800&q=80",
+    image: "https://ilovenavimumbai.com/wp-content/uploads/2025/12/Central-Park-Photos.webp",
     description: "Massive urban recreation park featuring landscaped lawns, amphitheaters, and walking trails.",
     mapQuery: "Central+Park+Kharghar+Navi+Mumbai",
   },
 ];
-
 const NEARBY_HOTELS = [
   {
     id: 101,
@@ -420,7 +420,7 @@ function TouristDashboardContent() {
   // Safety & SOS State
   const [isDanger, setIsDanger] = useState(false);
   const [sosSent, setSosSent] = useState(false);
-
+  const [currentZoneName, setCurrentZoneName] = useState("Locating..."); 
   // Fare Estimator State
   const [cabDistance, setCabDistance] = useState(5);
 
@@ -495,33 +495,90 @@ function TouristDashboardContent() {
   };
 
   const handleCalculateRoute = () => {
-    const origStation = MUMBAI_STATIONS.find((s) => s.name === origin);
-    const destStation = MUMBAI_STATIONS.find((s) => s.name === destination);
-
-    if (!origStation || !destStation) return;
-
-    if (origStation.line.includes("Western") && destStation.line.includes("Western")) {
+    if (origin === destination) {
       setSearchedRoute({
-        line: "Western Line (Slow / Fast Local)",
+        line: "Already at destination",
         interchange: null,
-        estimatedMins: 35,
-        fare: 10,
+        estimatedMins: 0,
+        fare: 0,
       });
-    } else if (origStation.line.includes("Central") && destStation.line.includes("Central")) {
+      return;
+    }
+
+    if (!MUMBAI_GRAPH[origin] || !MUMBAI_GRAPH[destination]) {
       setSearchedRoute({
-        line: "Central Line (Main Line Local)",
+        line: "Route data pending for these stations",
         interchange: null,
-        estimatedMins: 40,
-        fare: 15,
+        estimatedMins: 0,
+        fare: 0,
       });
-    } else {
-      setSearchedRoute({
-        line: `${origStation.line} ➔ ${destStation.line}`,
-        interchange: "Change train at Dadar Junction or Kurla Junction",
-        estimatedMins: 55,
-        fare: 20,
+      return;
+    }
+
+    // Dijkstra's Algorithm setup
+    const distances: Record<string, number> = {};
+    const previous: Record<string, { node: string; edge: RouteEdge } | null> = {};
+    const unvisited = new Set(Object.keys(MUMBAI_GRAPH));
+
+    Object.keys(MUMBAI_GRAPH).forEach((station) => {
+      distances[station] = Infinity;
+      previous[station] = null;
+    });
+    distances[origin] = 0;
+
+    while (unvisited.size > 0) {
+      let current = Array.from(unvisited).reduce((minNode, node) => 
+        distances[node] < distances[minNode] ? node : minNode
+      );
+
+      if (distances[current] === Infinity) break; 
+      if (current === destination) break; 
+
+      unvisited.delete(current);
+
+      MUMBAI_GRAPH[current].forEach((edge) => {
+        if (unvisited.has(edge.node)) {
+          const newTime = distances[current] + edge.time;
+          if (newTime < distances[edge.node]) {
+            distances[edge.node] = newTime;
+            previous[edge.node] = { node: current, edge: edge };
+          }
+        }
       });
     }
+
+    const path: string[] = [];
+    let currentTrace = destination;
+    let totalDistKm = 0;
+    let linesUsed = new Set<string>();
+    let interchanges: string[] = [];
+
+    while (currentTrace && previous[currentTrace]) {
+      const prevData = previous[currentTrace]!;
+      path.unshift(currentTrace);
+      totalDistKm += prevData.edge.dist;
+      linesUsed.add(prevData.edge.line);
+      
+      if (previous[prevData.node] && previous[prevData.node]!.edge.line !== prevData.edge.line) {
+         interchanges.push(prevData.node);
+      }
+      
+      currentTrace = prevData.node;
+    }
+    path.unshift(origin); 
+
+    const exactFare = calculateOfficialFare(totalDistKm);
+    const lineString = Array.from(linesUsed).join(" ➔ ");
+    const interchangeString = interchanges.length > 0 
+      ? `Change trains at ${interchanges.reverse().join(", ")}` 
+      : null;
+
+    setSearchedRoute({
+      line: lineString,
+      interchange: interchangeString,
+      estimatedMins: distances[destination],
+      fare: exactFare,
+    });
   };
 
   const navigateTo = (section: typeof activeSection) => {
@@ -1244,9 +1301,10 @@ function TouristDashboardContent() {
           <div className="space-y-4">
             <SafetyHeader
               score={isDanger ? 35 : 92}
-              zoneName={isDanger ? "High-Density Alert Precinct" : "Marine Drive Promenade"}
+              zoneName={isDanger ? "High-Density Alert Precinct" : currentZoneName}
               isDangerZone={isDanger}
             />
+            
 
             <button
               type="button"
@@ -1286,29 +1344,10 @@ function TouristDashboardContent() {
                 {isDanger ? "Switch to Safe Zone" : "Simulate Red Zone"}
               </button>
             </div>
-
-            <div className="relative h-56 bg-white rounded-3xl border border-slate-200 overflow-hidden flex flex-col items-center justify-center p-4 shadow-sm">
-              <div className="absolute inset-0 bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:16px_16px] opacity-70" />
-              
-              <div className="relative z-10 flex flex-col items-center">
-                <div className="relative flex items-center justify-center">
-                  <div className={`absolute w-20 h-20 rounded-full animate-ping opacity-30 ${isDanger ? "bg-rose-500" : "bg-emerald-500"}`} />
-                  <div className={`p-4 rounded-full border shadow-md ${isDanger ? "bg-rose-50 border-rose-200 text-rose-600" : "bg-emerald-50 border-emerald-200 text-emerald-600"}`}>
-                    <MapPin className="w-7 h-7" />
-                  </div>
-                </div>
-                <span className="text-[11px] font-mono font-bold mt-3 bg-slate-100 px-3 py-1 rounded-full border border-slate-200 text-slate-700 shadow-xs">
-                  {isDanger ? "⚠️ High Risk Area Flagged" : "✓ Active Patrol Monitoring"}
-                </span>
-              </div>
-
-              {isDanger && (
-                <div className="absolute bottom-3 left-3 right-3 bg-rose-50 border border-rose-200 text-rose-800 p-2.5 rounded-2xl text-xs flex items-center gap-2.5 shadow-sm">
-                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                  <span className="font-medium">Caution: High crowd density & scam reports flagged in this grid.</span>
-                </div>
-              )}
-            </div>
+            <LiveSafetyMap 
+              isDanger={isDanger} 
+              onLocationUpdate={(name) => setCurrentZoneName(name)} 
+            />
 
             <div className="bg-white p-5 rounded-3xl border border-slate-200 flex flex-col items-center text-center shadow-sm">
               {sosSent ? (
@@ -1791,11 +1830,16 @@ function TouristDashboardContent() {
                 >
                   <div className="relative h-44 w-full bg-slate-100 overflow-hidden">
                     <img
-                      src={spot.image}
-                      alt={spot.name}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      loading="lazy"
-                    />
+                    src={spot.image}
+                    alt={spot.name}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    loading="lazy"
+                    onError={(e) => {
+                      // Automatically fall back to Gateway of India if any image link breaks
+                      (e.currentTarget as HTMLImageElement).src =
+                        "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Mumbai_03-2016_30_Gateway_of_India.jpg/800px-Mumbai_03-2016_30_Gateway_of_India.jpg";
+                    }}
+                  />
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent" />
 
                     <div className="absolute top-3 left-3 right-3 flex items-center justify-between">

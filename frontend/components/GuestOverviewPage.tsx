@@ -24,8 +24,8 @@ export default function GuestOverviewPage({
   const [activeTab, setActiveTab] = useState<"history" | "etiquette">("history");
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-800 p-4 max-w-md mx-auto space-y-5 font-sans pb-12">
-      
+    <div className="relative min-h-screen bg-[#f8fafc] text-slate-800 p-4 max-w-md mx-auto font-sans pb-12">
+      <div className="relative z-10 space-y-5">
       {/* 1. BRANDING & CULTURAL HEADER */}
       <div className="text-center space-y-2 pt-4">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100/80 border border-emerald-300 text-emerald-800 text-[10px] font-extrabold uppercase tracking-wider shadow-xs">
@@ -49,6 +49,15 @@ export default function GuestOverviewPage({
             </p>
           </div>
         </div>
+      </div>
+
+      {/* Hero photo — full-width after header, pushes remaining content down */}
+      <div className="-mx-4">
+        <img
+          src="/Sukhad-Journeylogo.png"
+          alt="Sukhad-Journey — Your journey, our priority"
+          className="block w-full h-auto bg-white"
+        />
       </div>
 
       {/* 2. CITY HISTORY & CULTURE CARD */}
@@ -182,7 +191,7 @@ export default function GuestOverviewPage({
           <span>Register / Login for Digital ID Pass</span>
         </button>
       </div>
-
+      </div>
     </div>
   );
 }

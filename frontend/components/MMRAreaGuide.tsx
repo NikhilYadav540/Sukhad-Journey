@@ -1,24 +1,22 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   MapPin,
-  Star,
   ShieldCheck,
   Utensils,
-  Compass,
-  AlertTriangle,
   Train,
   Sparkles,
   Search,
 } from "lucide-react";
+import { contentApi } from "@/lib/api";
 
 // ================= MMR REGIONAL RECOMMENDATIONS DATABASE =================
 
 export interface AreaDetail {
   id: string;
   name: string;
-  region: "Western Line" | "Central Line" | "Extended MMR";
+  region: string;
   safetyScore: number;
   safetyTag: string;
   vibe: string;
@@ -36,163 +34,44 @@ export interface AreaDetail {
   transitAndSafetyTip: string;
 }
 
-const MMR_AREAS: AreaDetail[] = [
-  {
-    id: "andheri",
-    name: "Andheri (West & East)",
-    region: "Western Line",
-    safetyScore: 92,
-    safetyTag: "High Security • Active Nightlife",
-    vibe: "Bustling transit hub, Bollywood studios, coastal sunsets & commercial centers.",
-    highlyRecommended: [
-      {
-        title: "Versova Beach & Promenade",
-        type: "Coastal Spot",
-        desc: "Lesser-crowded coastal promenade famous for quiet sunset walks and trendy cafes.",
-        highlight: "⭐ Highly Recommended for Sunsets",
-      },
-      {
-        title: "Mahakali Caves (Kondivite)",
-        type: "Heritage Site",
-        desc: "19 ancient rock-cut Buddhist caves dating back to the 1st century BCE in Andheri East.",
-        highlight: "🏛️ Ancient Heritage Gem",
-      },
-      {
-        title: "Lokhandwala Market",
-        type: "Shopping Hub",
-        desc: "Famous vibrant open market for street fashion, footwear, and boutique shopping.",
-        highlight: "🛍️ Top Shopping Spot",
-      },
-    ],
-    foodHighlights: [
-      { spot: "Versova Social & Cafe", dish: "Seafood Bowls & Artisanal Coffee", type: "Cafe / Bistro" },
-      { spot: "Lokhandwala Khau Galli", dish: "Frankies, Momos & Shawarma Stalls", type: "Street Food" },
-    ],
-    transitAndSafetyTip: "Major interchange hub connecting Metro Line 1 (Ghatkopar-Versova) with the Western Local Rail. Stay alert at Andheri Station during 8–10 AM & 6–9 PM peak hours.",
-  },
-  {
-    id: "kandivali",
-    name: "Kandivali (West & East)",
-    region: "Western Line",
-    safetyScore: 95,
-    safetyTag: "Family Safe • Suburb Residential Hub",
-    vibe: "Family-friendly suburban haven, famous street food trails, and gateway to green parks.",
-    highlyRecommended: [
-      {
-        title: "Mahavir Nagar Khau Galli",
-        type: "Food Street",
-        desc: "One of Mumbai's most iconic vegetarian street food nightlife streets.",
-        highlight: "🔥 Must-Visit Food Hub",
-      },
-      {
-        title: "Growel's 101 Mall (East)",
-        type: "Shopping & Dining",
-        desc: "Neoclassical European-themed mall with family entertainment and dining.",
-        highlight: "🛍️ Family Mall",
-      },
-    ],
-    foodHighlights: [
-      { spot: "Mahavir Nagar Food Lane", dish: "Cheese Grill Sandwiches, Ulta Vada Pav & Fusion Dosas", type: "Street Food" },
-      { spot: "Bhagwati Fast Food", dish: "Pav Bhaji & Falooda", type: "Late-Night Dining" },
-    ],
-    transitAndSafetyTip: "Auto-rickshaws strictly operate by official meter rates here. Very safe for late-night family walks around Mahavir Nagar.",
-  },
-  {
-    id: "ghatkopar",
-    name: "Ghatkopar (East & West)",
-    region: "Central Line",
-    safetyScore: 91,
-    safetyTag: "Well-Patrolled • Central-East Hub",
-    vibe: "Culture-rich central junction, famous vegetarian cuisine, and mega shopping destinations.",
-    highlyRecommended: [
-      {
-        title: "R-City Mall (Ghatkopar West)",
-        type: "Mega Mall",
-        desc: "One of the largest shopping malls in MMR with 300+ stores, indoor gaming, and multiplexes.",
-        highlight: "⭐ Highly Recommended",
-      },
-      {
-        title: "Ghatkopar Khau Galli (Vallabh Road)",
-        type: "Food Street",
-        desc: "World-renowned street food strip famous for inventive vegetarian dishes.",
-        highlight: "🥪 Legendary Eats",
-      },
-    ],
-    foodHighlights: [
-      { spot: "Ghatkopar Khau Galli", dish: "Ice Cream Dosa, Remix Cheese Sandwiches & Dabeli", type: "Street Food" },
-      { spot: "Achija Fast Food", dish: "Butter Pav Bhaji & Paneer Tikka", type: "Family Dining" },
-    ],
-    transitAndSafetyTip: "Ghatkopar is the terminal station for Metro Line 1 connecting directly to Western Suburbs (Andheri/Versova). Auto meters are standard.",
-  },
-  {
-    id: "kurla",
-    name: "Kurla (West & East)",
-    region: "Central Line",
-    safetyScore: 84,
-    safetyTag: "High-Traffic Hub • Stay Vigilant",
-    vibe: "Massive commercial hub, major railway interchange, and premier luxury mall gateway.",
-    highlyRecommended: [
-      {
-        title: "Phoenix Marketcity (Kurla West)",
-        type: "Luxury & Entertainment Mall",
-        desc: "Colossal multi-floor mall with international brands, concerts, and fine dining.",
-        highlight: "💎 Premium Destination",
-      },
-      {
-        title: "BKC Border Promenade",
-        type: "Business District",
-        desc: "Adjacent to Bandra-Kurla Complex with landscaped walkways, art installations, and upscale bars.",
-        highlight: "🏢 Modern Corporate Zone",
-      },
-    ],
-    foodHighlights: [
-      { spot: "Phoenix Marketcity Courtyard", dish: "Global Cuisines, Craft Beers & Artisanal Desserts", type: "Fine Dining" },
-      { spot: "Kurla West Station Lane", dish: "Seekh Kebabs & Mughlai Rolls", type: "Street Delicacy" },
-    ],
-    transitAndSafetyTip: "Kurla is a heavy interchange junction (Central + Harbour Lines). Watch belongings on platform bridges and use pre-booked cabs or meters outside Phoenix Marketcity.",
-  },
-  {
-    id: "nallasopara",
-    name: "Nallasopara (West & East)",
-    region: "Extended MMR",
-    safetyScore: 82,
-    safetyTag: "Scenic Coastal Edge • Extended Zone",
-    vibe: "Historical Buddhist heritage, peaceful black-sand beaches, and budget coastal retreats.",
-    highlyRecommended: [
-      {
-        title: "Kalamb Beach (Nallasopara West)",
-        type: "Quiet Beach Retreat",
-        desc: "Serene, semi-black sand beach away from city crowds; ideal for peaceful ocean views.",
-        highlight: "🏖️ Quiet Escape",
-      },
-      {
-        title: "Ancient Nallasopara Stupa",
-        type: "Historical Monument",
-        desc: "One of the oldest Buddhist stupas in Western India (Ashokan era archaeological site).",
-        highlight: "📜 Ancient History",
-      },
-    ],
-    foodHighlights: [
-      { spot: "Kalamb Beach Stalls", dish: "Fresh Coconut Water, Agri-Koli Fish Thali & Snacks", type: "Coastal Eateries" },
-      { spot: "Nirmal Naka Eateries", dish: "Maharashtrian Misal Pav & Vadapav", type: "Local Snacks" },
-    ],
-    transitAndSafetyTip: "Auto-rickshaws operate on fixed rates (no meters). Confirm auto fares before boarding at Nallasopara Station. Plan return travel before 9:00 PM.",
-  },
-];
 
 // ================= COMPONENT =================
 
 export function MMRAreaGuide() {
-  const [selectedAreaId, setSelectedAreaId] = useState<string>("andheri");
+  const [areas, setAreas] = useState<AreaDetail[]>([]);
+  const [selectedAreaId, setSelectedAreaId] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const filteredAreas = MMR_AREAS.filter(
+  useEffect(() => {
+    contentApi
+      .mmrAreas()
+      .then((data) => {
+        setAreas(data as AreaDetail[]);
+        if (data.length > 0) setSelectedAreaId(data[0].id);
+      })
+      .catch((err) => setError(err.message || "Couldn't load area guide."))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const filteredAreas = areas.filter(
     (area) =>
       area.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       area.region.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const activeArea = MMR_AREAS.find((a) => a.id === selectedAreaId) || MMR_AREAS[0];
+  const activeArea = areas.find((a) => a.id === selectedAreaId) || areas[0];
+
+  if (loading) {
+    return <p className="text-xs text-slate-500 py-6 text-center">Loading area guide...</p>;
+  }
+  if (error) {
+    return <p className="text-xs text-red-400 py-6 text-center">{error}</p>;
+  }
+  if (!activeArea) {
+    return <p className="text-xs text-slate-500 py-6 text-center">No area data available.</p>;
+  }
 
   return (
     <div className="space-y-4">

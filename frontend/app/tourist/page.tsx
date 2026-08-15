@@ -41,316 +41,21 @@ import {
   Mail,
   CheckCircle2,
 } from "lucide-react";
+import {
+  authApi, passApi, emergencyApi, contentApi, trainApi,
+  getToken, setToken, clearToken,
+  type AttractionDTO, type HotelDTO, type FoodSpotDTO, type EmergencyServiceCategoryDTO,
+  type LocalScamDTO, type PhraseCategoryDTO, type SmartItineraryDTO, type StationDTO,
+} from "@/lib/api";
 
-// ================= MOCK DATA & DATABASES =================
+// Maps backend icon_key strings to the actual lucide-react component (icons can't cross a JSON boundary)
+const EMERGENCY_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  hospital: Hospital,
+  siren: Siren,
+  pill: Pill,
+};
 
-const MUMBAI_STATIONS = [
-  { name: "Churchgate", line: "Western", hub: false },
-  { name: "Marine Lines", line: "Western", hub: false },
-  { name: "Charni Road", line: "Western", hub: false },
-  { name: "Grant Road", line: "Western", hub: false },
-  { name: "Mumbai Central", line: "Western", hub: true },
-  { name: "Dadar", line: "Interchange (Western & Central)", hub: true },
-  { name: "Bandra", line: "Western", hub: true },
-  { name: "Andheri", line: "Western & Harbour", hub: true },
-  { name: "Borivali", line: "Western", hub: true },
-  { name: "Virar", line: "Western", hub: false },
-  { name: "CSMT (VT)", line: "Central & Harbour", hub: true },
-  { name: "Byculla", line: "Central", hub: false },
-  { name: "Kurla", line: "Interchange (Central & Harbour)", hub: true },
-  { name: "Ghatkopar", line: "Central", hub: true },
-  { name: "Thane", line: "Central", hub: true },
-  { name: "Kalyan", line: "Central", hub: true },
-  { name: "Wadala Road", line: "Harbour", hub: true },
-  { name: "Vashi", line: "Harbour", hub: true },
-  { name: "Panvel", line: "Harbour", hub: true },
-];
-
-const EMERGENCY_SERVICES = [
-  {
-    category: "24/7 Hospitals",
-    icon: Hospital,
-    color: "emerald",
-    list: [
-      { name: "Bombay Hospital & Medical Research Centre", phone: "+912222067676", distance: "1.1 km", location: "Marine Lines" },
-      { name: "INS Asvini Naval Hospital", phone: "+912222151661", distance: "2.4 km", location: "Colaba" },
-      { name: "Lilavati Hospital & Research Centre", phone: "+912226751000", distance: "14.2 km", location: "Bandra West" },
-    ],
-  },
-  {
-    category: "Tourist Police Squads",
-    icon: Siren,
-    color: "sky",
-    list: [
-      { name: "Colaba Tourist Police Precinct", phone: "112", distance: "0.8 km", location: "Colaba Causeway" },
-      { name: "Azad Maidan Police Station (CST Area)", phone: "+912222620330", distance: "2.1 km", location: "Fort" },
-      { name: "Marine Drive Police Control", phone: "+912222812061", distance: "1.3 km", location: "Marine Drive" },
-    ],
-  },
-  {
-    category: "24/7 Pharmacies",
-    icon: Pill,
-    color: "teal",
-    list: [
-      { name: "Wellness Forever 24x7 Chemist", phone: "+912222851122", distance: "0.5 km", location: "Churchgate" },
-      { name: "Apollo Pharmacy 24 Hours", phone: "+912222020202", distance: "1.2 km", location: "Fort" },
-    ],
-  },
-];
-
-const LOCAL_SCAMS = [
-  {
-    id: 1,
-    title: "Tampered Auto/Taxi Meter Fraud",
-    location: "Airports, CSMT & Gateway of India",
-    severity: "High Risk",
-    description: "Drivers may claim the meter is broken or request flat exorbitant fares for short distances.",
-    prevention: "Insist on metered rate or use our built-in Cab & Auto Estimator to show standard tariff rates. Threaten to call 112 if refused.",
-  },
-  {
-    id: 2,
-    title: "Fake Unregistered Guides",
-    location: "Gateway of India & Elephanta Caves",
-    severity: "Moderate",
-    description: "Touts wearing official-looking lanyards offer 'VIP entry' or private tours at 10x the price.",
-    prevention: "Ask for an official Ministry of Tourism ID card before accepting any guide services.",
-  },
-  {
-    id: 3,
-    title: "Pigeon Feeding & Photo Traps",
-    location: "Gateway Plaza & Marine Drive",
-    severity: "Low Risk",
-    description: "Vendors force bird seeds into your hand for photos and demand large cash fees afterward.",
-    prevention: "Politely say 'No thank you' and walk away immediately without accepting feed bags.",
-  },
-];
-
-const LOCAL_PHRASES = [
-  {
-    category: "Bargaining & Transport",
-    phrases: [
-      { hindi: "Bhaiyya meter se chalo", translation: "Brother, please go by meter rate", phonetic: "Bhai-ya me-ter say cha-lo" },
-      { hindi: "Kitna hua?", translation: "How much does this cost?", phonetic: "Kit-na hoo-aa?" },
-      { hindi: "Thoda kam karo na", translation: "Please lower the price a bit", phonetic: "Tho-da kam ka-ro na" },
-    ],
-  },
-  {
-    category: "Emergency & Assistance",
-    phrases: [
-      { hindi: "Madad chahiye!", translation: "I need help!", phonetic: "Ma-dad cha-hi-ye!" },
-      { hindi: "Hospital kaha hai?", translation: "Where is the nearest hospital?", phonetic: "Hos-pi-tal ka-haa hai?" },
-      { hindi: "Mujhe police station jana hai", translation: "I want to go to the police station", phonetic: "Moo-jhe po-lice sta-tion ja-na hai" },
-    ],
-  },
-  {
-    category: "Food & Water Safety",
-    phrases: [
-      { hindi: "Thanda paani / Bottled paani", translation: "Cold water / Sealed mineral water", phonetic: "Bot-tled paa-nee" },
-      { hindi: "Kam teekha banana", translation: "Please make it less spicy", phonetic: "Kam tee-kha ba-naa-na" },
-    ],
-  },
-];
-
-const SMART_ITINERARIES = [
-  {
-    id: "1day-heritage",
-    title: "1-Day Heritage & Seafront Trail",
-    subtitle: "Covers iconic South Mumbai landmarks safely and efficiently",
-    timeSlots: [
-      { time: "09:00 AM", activity: "Gateway of India & Taj Mahal Palace", note: "Best light for photos, low crowd." },
-      { time: "11:30 AM", activity: "CSMT Station & Fort Colonial Walking Tour", note: "Stick to patrolled heritage walkways." },
-      { time: "02:00 PM", activity: "Lunch at Leopold Cafe or Britannia & Co.", note: "Heritage Parsi & Irani delicacies." },
-      { time: "05:00 PM", activity: "Sunset stroll along Marine Drive Promenade", note: "Well-lit and heavily patrolled tourist precinct." },
-    ],
-  },
-  {
-    id: "3day-ultimate",
-    title: "3-Day Ultimate Mumbai Explorer",
-    subtitle: "Complete cultural, shopping, and food immersion",
-    timeSlots: [
-      { time: "Day 1", activity: "South Mumbai Heritage & Gateway of India Boat Cruise", note: "Full day in South District." },
-      { time: "Day 2", activity: "Bandra Fort, Linking Road Shopping & Carter Road Promenade", note: "Trendy suburban experience." },
-      { time: "Day 3", activity: "Sanjay Gandhi National Park & Kanheri Caves Trail", note: "Nature & ancient Buddhist rock carvings." },
-    ],
-  },
-];
-
-const NEARBY_ATTRACTIONS = [
-  {
-    id: 1,
-    name: "Gateway of India",
-    region: "South Mumbai",
-    category: "Historical Monument",
-    rating: 4.8,
-    distance: "1.2 km",
-    safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1570168007204-dfb528c6958f?auto=format&fit=crop&w=800&q=80",
-    description: "Iconic 20th-century waterfront arch monument built overlooking the Arabian Sea.",
-    mapQuery: "Gateway+of+India+Mumbai",
-  },
-  {
-    id: 2,
-    name: "Marine Drive Promenade",
-    region: "South Mumbai",
-    category: "Coastal Boulevard",
-    rating: 4.9,
-    distance: "0.5 km",
-    safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1567157577867-05ccb1388e66?auto=format&fit=crop&w=800&q=80",
-    description: "3.6 km long arc-shaped boulevard along the coast, famous for Queen's Necklace night views.",
-    mapQuery: "Marine+Drive+Mumbai",
-  },
-  {
-    id: 3,
-    name: "Sanjay Gandhi National Park",
-    region: "Western Suburbs (Borivali)",
-    category: "Nature & Wildlife",
-    rating: 4.7,
-    distance: "22.5 km",
-    safetyStatus: "Patrolled Trail ✓",
-    image: "https://images.unsplash.com/photo-1628155930542-3c7a64e2c833?auto=format&fit=crop&w=800&q=80",
-    description: "Sprawling protected rainforest home to free-roaming leopards, flora, and scenic lakes.",
-    mapQuery: "Sanjay+Gandhi+National+Park+Borivali",
-  },
-  {
-    id: 4,
-    name: "Kanheri Caves",
-    region: "Western Suburbs (Borivali)",
-    category: "Heritage Ancient Caves",
-    rating: 4.8,
-    distance: "25.0 km",
-    safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1600100397608-f010e423b971?auto=format&fit=crop&w=800&q=80",
-    description: "109 ancient Buddhist rock-cut monuments inside Sanjay Gandhi National Park.",
-    mapQuery: "Kanheri+Caves+Mumbai",
-  },
-  {
-    id: 5,
-    name: "Bandra Fort & Sea Link Promenade",
-    region: "Western Suburbs (Bandra)",
-    category: "Coastal Fort & Sea View",
-    rating: 4.6,
-    distance: "12.8 km",
-    safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1582510003544-4d00b7f74220?auto=format&fit=crop&w=800&q=80",
-    description: "17th-century Portuguese fort offering stunning vistas of the iconic Rajiv Gandhi Sea Link.",
-    mapQuery: "Bandra+Fort+Mumbai",
-  },
-  {
-    id: 6,
-    name: "Global Vipassana Pagoda",
-    region: "Northern Suburbs (Gorai)",
-    category: "Spiritual Monument",
-    rating: 4.8,
-    distance: "32.0 km",
-    safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1609949279531-cf48d64bed89?auto=format&fit=crop&w=800&q=80",
-    description: "Massive golden dome meditation hall and peace monument built on the Gorai peninsula.",
-    mapQuery: "Global+Vipassana+Pagoda+Gorai",
-  },
-  {
-    id: 7,
-    name: "Elephanta Caves Island",
-    region: "MMR Harbor",
-    category: "UNESCO World Heritage Site",
-    rating: 4.7,
-    distance: "11.0 km (Ferry Ride)",
-    safetyStatus: "Patrolled Island ✓",
-    image: "https://images.unsplash.com/photo-1620802051782-725fa33f9232?auto=format&fit=crop&w=800&q=80",
-    description: "Rock-cut cave temples dedicated to Lord Shiva, accessible by boat from Gateway of India.",
-    mapQuery: "Elephanta+Caves+Mumbai",
-  },
-  {
-    id: 8,
-    name: "Haji Ali Dargah",
-    region: "South-Central Mumbai",
-    category: "Coastal Shrine",
-    rating: 4.7,
-    distance: "7.2 km",
-    safetyStatus: "Monitored Zone ✓",
-    image: "https://images.unsplash.com/photo-1590050752117-238cb0fb12b1?auto=format&fit=crop&w=800&q=80",
-    description: "Historic 15th-century mosque and tomb situated on an islet connected by a narrow causeway.",
-    mapQuery: "Haji+Ali+Dargah+Mumbai",
-  },
-  {
-    id: 9,
-    name: "CSMT World Heritage Terminus",
-    region: "South Mumbai",
-    category: "Colonial Architecture",
-    rating: 4.9,
-    distance: "1.8 km",
-    safetyStatus: "High Security Zone ✓",
-    image: "https://images.unsplash.com/photo-1566552881560-0be862a7c445?auto=format&fit=crop&w=800&q=80",
-    description: "Victorian Gothic Revival architectural masterpiece and bustling central transport hub.",
-    mapQuery: "Chhatrapati+Shivaji+Maharaj+Terminus",
-  },
-  {
-    id: 10,
-    name: "Upvan Lake & Yeoor Hills",
-    region: "Thane MMR Zone",
-    category: "Scenic Nature Reserve",
-    rating: 4.6,
-    distance: "28.0 km",
-    safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=800&q=80",
-    description: "Serene lakeside garden nestled against the lush forest hills of Sanjay Gandhi National Park in Thane.",
-    mapQuery: "Upvan+Lake+Thane",
-  },
-  {
-    id: 11,
-    name: "Central Park & Jewel of Navi Mumbai",
-    region: "Navi Mumbai Zone",
-    category: "Urban Park & Botanical Garden",
-    rating: 4.6,
-    distance: "30.0 km",
-    safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1519331379826-f10be5486c6f?auto=format&fit=crop&w=800&q=80",
-    description: "Massive urban recreation park featuring landscaped lawns, amphitheaters, and walking trails.",
-    mapQuery: "Central+Park+Kharghar+Navi+Mumbai",
-  },
-];
-
-const NEARBY_HOTELS = [
-  {
-    id: 101,
-    name: "The Taj Mahal Palace",
-    category: "5-Star Luxury Heritage",
-    rating: 4.9,
-    priceRange: "₹22,000 / night",
-    distance: "0.8 km",
-    description: "World-famous heritage luxury hotel offering breathtaking views of the Gateway of India.",
-  },
-  {
-    id: 102,
-    name: "Trident Hotel Nariman Point",
-    category: "5-Star Business & Luxury",
-    rating: 4.7,
-    priceRange: "₹14,000 / night",
-    distance: "0.4 km",
-    description: "Located right on Marine Drive offering panoramic coastal ocean views.",
-  },
-];
-
-const MUST_TRY_FOOD = [
-  {
-    id: 201,
-    name: "Leopold Cafe & Bar",
-    cuisine: "Irani & Continental Heritage Cafe",
-    mustTryDish: "Keema Pav & Cold Coffee",
-    rating: 4.6,
-    distance: "1.4 km",
-    description: "Legendary cafe operating since 1871. Featured in Shantaram; famous for its lively vintage ambience.",
-  },
-  {
-    id: 202,
-    name: "Bademiya Kebabs",
-    cuisine: "Mughlai Street Food",
-    mustTryDish: "Chicken Baida Roti & Seekh Kebab",
-    rating: 4.5,
-    distance: "1.3 km",
-    description: "World-renowned late-night street food destination behind the Taj Mahal Palace.",
-  },
-];
+// ================= LIVE DATA (fetched from the FastAPI backend on mount) =================
 
 // ================= MAIN COMPONENT =================
 
@@ -404,17 +109,94 @@ function TouristDashboardContent() {
   // Profile Photo State
   const [userPhoto, setUserPhoto] = useState<string | null>(null);
 
-  // Dynamic User Profile
+  // ---- Backend-backed auth/session state ----
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [backendProfile, setBackendProfile] = useState<{
+    full_name: string | null; email: string | null; phone_number: string;
+    date_of_birth: string | null; gender: string | null;
+    emergency_contact_name: string | null; emergency_contact_phone: string | null;
+  } | null>(null);
+  const [backendPass, setBackendPass] = useState<{
+    did: string; validTill: string; idType: string; qrImageUrl: string | null;
+  } | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // ---- Live content fetched from the backend (replaces old mock arrays) ----
+  const [mumbaiStations, setMumbaiStations] = useState<StationDTO[]>([]);
+  const [emergencyServices, setEmergencyServices] = useState<EmergencyServiceCategoryDTO[]>([]);
+  const [localScams, setLocalScams] = useState<LocalScamDTO[]>([]);
+  const [localPhrases, setLocalPhrases] = useState<PhraseCategoryDTO[]>([]);
+  const [smartItineraries, setSmartItineraries] = useState<SmartItineraryDTO[]>([]);
+  const [nearbyAttractions, setNearbyAttractions] = useState<AttractionDTO[]>([]);
+  const [nearbyHotels, setNearbyHotels] = useState<HotelDTO[]>([]);
+  const [mustTryFood, setMustTryFood] = useState<FoodSpotDTO[]>([]);
+  const [contentLoaded, setContentLoaded] = useState(false);
+
+  // Restore session + fetch all guest-accessible content on first mount
+  useEffect(() => {
+    const existingToken = getToken();
+    if (existingToken) {
+      setAuthToken(existingToken);
+      authApi.getMe(existingToken).then((me) => {
+        setBackendProfile(me);
+        setHasPassPreview(true);
+        return passApi.getMine(existingToken).catch(() => null);
+      }).then((pass) => {
+        if (pass) setBackendPass(pass);
+      }).catch(() => {
+        clearToken();
+        setAuthToken(null);
+      });
+    }
+
+    Promise.all([
+      contentApi.stations(),
+      contentApi.emergencyServices(),
+      contentApi.scams(),
+      contentApi.phrasebook(),
+      contentApi.smartItineraries(),
+      contentApi.attractions(),
+      contentApi.hotels(),
+      contentApi.food(),
+    ]).then(([stations, services, scams, phrases, itins, attractions, hotels, food]) => {
+      setMumbaiStations(stations);
+      setEmergencyServices(services);
+      setLocalScams(scams);
+      setLocalPhrases(phrases);
+      setSmartItineraries(itins);
+      setNearbyAttractions(attractions);
+      setNearbyHotels(hotels);
+      setMustTryFood(food);
+      setContentLoaded(true);
+    }).catch((err) => {
+      console.error("Failed to load content from backend:", err);
+      setContentLoaded(true); // don't block the UI forever if the API is unreachable
+    });
+  }, []);
+
+  // Re-fetch attractions when the region filter changes (backend does the filtering)
+  useEffect(() => {
+    if (!contentLoaded) return;
+    contentApi.attractions(selectedRegionFilter).then(setNearbyAttractions).catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRegionFilter]);
+
+  // Dynamic User Profile — real data once logged in, guest placeholder otherwise
   const touristUser = {
-    fullName: hasPassPreview && fullName ? fullName : "Guest Traveler",
-    email: hasPassPreview && email ? email : "Not provided",
-    phone: hasPassPreview && authPhone ? `${countryCode} ${authPhone}` : "Unverified (Guest Mode)",
-    dob: dob || "Not specified",
-    gender: gender || "Not specified",
-    emergencyContact: "+91 91234 56789 (Parent)",
-    idType: hasPassPreview ? "Verified Local Tourist Pass" : "Temporary Guest Session",
-    idHash: hasPassPreview ? `DID:SUKHAD-${Math.random().toString(36).substring(2, 8).toUpperCase()}` : "DID:GUEST-TEMPORARY",
-    validTill: "18 Aug 2026",
+    fullName: backendProfile?.full_name || "Guest Traveler",
+    email: backendProfile?.email || "Not provided",
+    phone: backendProfile ? `${countryCode} ${backendProfile.phone_number}` : "Unverified (Guest Mode)",
+    dob: backendProfile?.date_of_birth || "Not specified",
+    gender: backendProfile?.gender || "Not specified",
+    emergencyContact: backendProfile?.emergency_contact_name
+      ? `${backendProfile.emergency_contact_phone} (${backendProfile.emergency_contact_name})`
+      : "Not specified",
+    idType: backendPass?.idType || (hasPassPreview ? "Verified Local Tourist Pass" : "Temporary Guest Session"),
+    idHash: backendPass?.did || "DID:GUEST-TEMPORARY",
+    validTill: backendPass
+      ? new Date(backendPass.validTill).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+      : "18 Aug 2026",
   };
 
   // Safety & SOS State
@@ -491,37 +273,40 @@ function TouristDashboardContent() {
 
   const handleSOS = () => {
     setSosSent(true);
+    // Best-effort: capture location and log a real alert the police dashboard can see,
+    // then still fall through to the direct emergency call (most reliable path).
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          emergencyApi
+            .triggerSOS(
+              { latitude: pos.coords.latitude, longitude: pos.coords.longitude },
+              authToken
+            )
+            .catch((err) => console.error("SOS alert dispatch failed:", err));
+        },
+        (err) => console.error("Geolocation unavailable for SOS:", err),
+        { timeout: 5000 }
+      );
+    }
     window.location.href = "tel:112";
   };
 
   const handleCalculateRoute = () => {
-    const origStation = MUMBAI_STATIONS.find((s) => s.name === origin);
-    const destStation = MUMBAI_STATIONS.find((s) => s.name === destination);
-
-    if (!origStation || !destStation) return;
-
-    if (origStation.line.includes("Western") && destStation.line.includes("Western")) {
-      setSearchedRoute({
-        line: "Western Line (Slow / Fast Local)",
-        interchange: null,
-        estimatedMins: 35,
-        fare: 10,
+    trainApi
+      .getRoute(origin, destination)
+      .then((route) => {
+        setSearchedRoute({
+          line: route.line,
+          interchange: route.interchange,
+          estimatedMins: route.estimatedMins,
+          fare: route.fare,
+        });
+      })
+      .catch((err) => {
+        console.error("Route lookup failed:", err);
+        setSearchedRoute(null);
       });
-    } else if (origStation.line.includes("Central") && destStation.line.includes("Central")) {
-      setSearchedRoute({
-        line: "Central Line (Main Line Local)",
-        interchange: null,
-        estimatedMins: 40,
-        fare: 15,
-      });
-    } else {
-      setSearchedRoute({
-        line: `${origStation.line} ➔ ${destStation.line}`,
-        interchange: "Change train at Dadar Junction or Kurla Junction",
-        estimatedMins: 55,
-        fare: 20,
-      });
-    }
   };
 
   const navigateTo = (section: typeof activeSection) => {
@@ -529,31 +314,79 @@ function TouristDashboardContent() {
     setIsMenuOpen(false);
   };
 
-  // Registration Auth Steps
+  // Registration Auth Steps — now backed by real OTP requests/verification
   const handlePhoneSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!/^\d{7,12}$/.test(authPhone.replace(/\s+/g, ""))) return;
-    setAuthStep("otp");
-    startResendTimer();
+    setAuthError(null);
+    const cleanedPhone = authPhone.replace(/\s+/g, "");
+    if (!/^\d{7,12}$/.test(cleanedPhone)) return;
+
+    setAuthLoading(true);
+    authApi
+      .requestOtp(`${countryCode}${cleanedPhone}`)
+      .then(() => {
+        setAuthStep("otp");
+        startResendTimer();
+      })
+      .catch((err) => setAuthError(err.message || "Couldn't send OTP. Please try again."))
+      .finally(() => setAuthLoading(false));
   };
 
   const handleOtpSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setAuthError(null);
     if (authOtp.length < 4) return;
-    setAuthStep("profile");
+
+    setAuthLoading(true);
+    const cleanedPhone = authPhone.replace(/\s+/g, "");
+    authApi
+      .verifyOtp(`${countryCode}${cleanedPhone}`, authOtp)
+      .then(({ access_token }) => {
+        setToken(access_token);
+        setAuthToken(access_token);
+        return authApi.getMe(access_token);
+      })
+      .then((me) => {
+        setBackendProfile(me);
+        setFullName(me.full_name || "");
+        setEmail(me.email || "");
+        setAuthStep("profile");
+      })
+      .catch((err) => setAuthError(err.message || "Invalid or expired OTP."))
+      .finally(() => setAuthLoading(false));
   };
 
   const handleProfileSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName || !email) return;
-    setHasPassPreview(true);
-    setShowAuthModal(false);
-    setAuthStep("phone");
-    // Show Intro Screen post-registration
-    setShowRegistrationIntro(true);
+    setAuthError(null);
+    if (!fullName || !email || !authToken) return;
+
+    setAuthLoading(true);
+    authApi
+      .updateMe(authToken, {
+        full_name: fullName,
+        email,
+        date_of_birth: dob || undefined,
+        gender: gender || undefined,
+      })
+      .then((me) => {
+        setBackendProfile(me);
+        return passApi.issue(authToken, 14);
+      })
+      .then((pass) => {
+        setBackendPass(pass);
+        setHasPassPreview(true);
+        setShowAuthModal(false);
+        setAuthStep("phone");
+        setShowRegistrationIntro(true);
+      })
+      .catch((err) => setAuthError(err.message || "Couldn't complete registration."))
+      .finally(() => setAuthLoading(false));
   };
 
   const handleSocialAuth = (provider: string) => {
+    // Social login isn't backed by the API yet — kept as a UI-only placeholder
+    // so the button remains functional while only phone OTP is wired to the backend.
     setFullName(`${provider} Traveler`);
     setEmail(`user@${provider.toLowerCase()}.com`);
     setAuthStep("profile");
@@ -562,8 +395,8 @@ function TouristDashboardContent() {
   // Filtered attractions
   const filteredAttractions =
     selectedRegionFilter === "All"
-      ? NEARBY_ATTRACTIONS
-      : NEARBY_ATTRACTIONS.filter((item) => item.region.includes(selectedRegionFilter));
+      ? nearbyAttractions
+      : nearbyAttractions.filter((item) => item.region.includes(selectedRegionFilter));
 
   // ================= 1. INTRO / SPLASH SCREEN (INITIAL LAUNCH) =================
   if (showSplash) {
@@ -1371,8 +1204,8 @@ function TouristDashboardContent() {
             </div>
 
             <div className="space-y-4">
-              {EMERGENCY_SERVICES.map((section, idx) => {
-                const SectionIcon = section.icon;
+              {emergencyServices.map((section, idx) => {
+                const SectionIcon = EMERGENCY_ICON_MAP[section.icon_key] || Hospital;
                 return (
                   <div key={idx} className="bg-white border border-slate-200 p-4 rounded-3xl space-y-3 shadow-sm">
                     <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
@@ -1417,7 +1250,7 @@ function TouristDashboardContent() {
             </div>
 
             <div className="space-y-3">
-              {LOCAL_SCAMS.map((scam) => (
+              {localScams.map((scam) => (
                 <div key={scam.id} className="bg-white border border-amber-200 p-4 rounded-3xl space-y-2.5 shadow-sm">
                   <div className="flex justify-between items-start">
                     <h3 className="font-bold text-sm text-amber-900">{scam.title}</h3>
@@ -1458,7 +1291,7 @@ function TouristDashboardContent() {
             </div>
 
             <div className="space-y-4">
-              {LOCAL_PHRASES.map((group, idx) => (
+              {localPhrases.map((group, idx) => (
                 <div key={idx} className="bg-white border border-slate-200 p-4 rounded-3xl space-y-3 shadow-sm">
                   <h3 className="font-extrabold text-xs text-purple-700 uppercase tracking-wider border-b border-slate-100 pb-2">
                     {group.category}
@@ -1501,7 +1334,7 @@ function TouristDashboardContent() {
             </div>
 
             <div className="space-y-4">
-              {SMART_ITINERARIES.map((item) => (
+              {smartItineraries.map((item) => (
                 <div key={item.id} className="bg-white border border-slate-200 p-4 rounded-3xl space-y-3 shadow-sm">
                   <div className="border-b border-slate-100 pb-2">
                     <h3 className="font-bold text-sm text-indigo-900">{item.title}</h3>
@@ -1637,7 +1470,7 @@ function TouristDashboardContent() {
                     onChange={(e) => setOrigin(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl p-3 text-xs focus:outline-none focus:border-amber-500"
                   >
-                    {MUMBAI_STATIONS.map((st) => (
+                    {mumbaiStations.map((st) => (
                       <option key={st.name} value={st.name}>
                         {st.name} ({st.line})
                       </option>
@@ -1652,7 +1485,7 @@ function TouristDashboardContent() {
                     onChange={(e) => setDestination(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl p-3 text-xs focus:outline-none focus:border-amber-500"
                   >
-                    {MUMBAI_STATIONS.map((st) => (
+                    {mumbaiStations.map((st) => (
                       <option key={st.name} value={st.name}>
                         {st.name} ({st.line})
                       </option>
@@ -1791,7 +1624,7 @@ function TouristDashboardContent() {
                 >
                   <div className="relative h-44 w-full bg-slate-100 overflow-hidden">
                     <img
-                      src={spot.image}
+                      src={spot.image || "https://images.unsplash.com/photo-1570168007204-dfb528c6958f?auto=format&fit=crop&w=800&q=80"}
                       alt={spot.name}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       loading="lazy"
@@ -1855,7 +1688,7 @@ function TouristDashboardContent() {
             </div>
 
             <div className="space-y-3">
-              {NEARBY_HOTELS.map((hotel) => (
+              {nearbyHotels.map((hotel) => (
                 <div key={hotel.id} className="bg-white border border-slate-200 p-4 rounded-3xl space-y-2.5 shadow-sm">
                   <div className="flex justify-between items-start">
                     <div>
@@ -1893,7 +1726,7 @@ function TouristDashboardContent() {
             </div>
 
             <div className="space-y-3">
-              {MUST_TRY_FOOD.map((food) => (
+              {mustTryFood.map((food) => (
                 <div key={food.id} className="bg-white border border-slate-200 p-4 rounded-3xl space-y-2.5 shadow-sm">
                   <div className="flex justify-between items-start">
                     <div>

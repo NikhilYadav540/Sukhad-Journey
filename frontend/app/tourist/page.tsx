@@ -53,6 +53,21 @@ import {
   Mail,
   CheckCircle2,
 } from "lucide-react";
+import {
+  authApi, passApi, emergencyApi, contentApi, trainApi,
+  getToken, setToken, clearToken,
+  type AttractionDTO, type HotelDTO, type FoodSpotDTO, type EmergencyServiceCategoryDTO,
+  type LocalScamDTO, type PhraseCategoryDTO, type SmartItineraryDTO, type StationDTO,
+} from "@/lib/api";
+
+// Maps backend icon_key strings to the actual lucide-react component (icons can't cross a JSON boundary)
+const EMERGENCY_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
+  hospital: Hospital,
+  siren: Siren,
+  pill: Pill,
+};
+
+// ================= LIVE DATA (fetched from the FastAPI backend on mount) =================
 
 // ================= MOCK DATA & DATABASES =================
 
@@ -404,17 +419,94 @@ function TouristDashboardContent() {
   // Profile Photo State
   const [userPhoto, setUserPhoto] = useState<string | null>(null);
 
-  // Dynamic User Profile
+  // ---- Backend-backed auth/session state ----
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [backendProfile, setBackendProfile] = useState<{
+    full_name: string | null; email: string | null; phone_number: string;
+    date_of_birth: string | null; gender: string | null;
+    emergency_contact_name: string | null; emergency_contact_phone: string | null;
+  } | null>(null);
+  const [backendPass, setBackendPass] = useState<{
+    did: string; validTill: string; idType: string; qrImageUrl: string | null;
+  } | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // ---- Live content fetched from the backend (replaces old mock arrays) ----
+  const [mumbaiStations, setMumbaiStations] = useState<StationDTO[]>([]);
+  const [emergencyServices, setEmergencyServices] = useState<EmergencyServiceCategoryDTO[]>([]);
+  const [localScams, setLocalScams] = useState<LocalScamDTO[]>([]);
+  const [localPhrases, setLocalPhrases] = useState<PhraseCategoryDTO[]>([]);
+  const [smartItineraries, setSmartItineraries] = useState<SmartItineraryDTO[]>([]);
+  const [nearbyAttractions, setNearbyAttractions] = useState<AttractionDTO[]>([]);
+  const [nearbyHotels, setNearbyHotels] = useState<HotelDTO[]>([]);
+  const [mustTryFood, setMustTryFood] = useState<FoodSpotDTO[]>([]);
+  const [contentLoaded, setContentLoaded] = useState(false);
+
+  // Restore session + fetch all guest-accessible content on first mount
+  useEffect(() => {
+    const existingToken = getToken();
+    if (existingToken) {
+      setAuthToken(existingToken);
+      authApi.getMe(existingToken).then((me) => {
+        setBackendProfile(me);
+        setHasPassPreview(true);
+        return passApi.getMine(existingToken).catch(() => null);
+      }).then((pass) => {
+        if (pass) setBackendPass(pass);
+      }).catch(() => {
+        clearToken();
+        setAuthToken(null);
+      });
+    }
+
+    Promise.all([
+      contentApi.stations(),
+      contentApi.emergencyServices(),
+      contentApi.scams(),
+      contentApi.phrasebook(),
+      contentApi.smartItineraries(),
+      contentApi.attractions(),
+      contentApi.hotels(),
+      contentApi.food(),
+    ]).then(([stations, services, scams, phrases, itins, attractions, hotels, food]) => {
+      setMumbaiStations(stations);
+      setEmergencyServices(services);
+      setLocalScams(scams);
+      setLocalPhrases(phrases);
+      setSmartItineraries(itins);
+      setNearbyAttractions(attractions);
+      setNearbyHotels(hotels);
+      setMustTryFood(food);
+      setContentLoaded(true);
+    }).catch((err) => {
+      console.error("Failed to load content from backend:", err);
+      setContentLoaded(true); // don't block the UI forever if the API is unreachable
+    });
+  }, []);
+
+  // Re-fetch attractions when the region filter changes (backend does the filtering)
+  useEffect(() => {
+    if (!contentLoaded) return;
+    contentApi.attractions(selectedRegionFilter).then(setNearbyAttractions).catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedRegionFilter]);
+
+  // Dynamic User Profile — real data once logged in, guest placeholder otherwise
   const touristUser = {
-    fullName: hasPassPreview && fullName ? fullName : "Guest Traveler",
-    email: hasPassPreview && email ? email : "Not provided",
-    phone: hasPassPreview && authPhone ? `${countryCode} ${authPhone}` : "Unverified (Guest Mode)",
-    dob: dob || "Not specified",
-    gender: gender || "Not specified",
-    emergencyContact: "+91 91234 56789 (Parent)",
-    idType: hasPassPreview ? "Verified Local Tourist Pass" : "Temporary Guest Session",
-    idHash: hasPassPreview ? `DID:SUKHAD-${Math.random().toString(36).substring(2, 8).toUpperCase()}` : "DID:GUEST-TEMPORARY",
-    validTill: "18 Aug 2026",
+    fullName: backendProfile?.full_name || "Guest Traveler",
+    email: backendProfile?.email || "Not provided",
+    phone: backendProfile ? `${countryCode} ${backendProfile.phone_number}` : "Unverified (Guest Mode)",
+    dob: backendProfile?.date_of_birth || "Not specified",
+    gender: backendProfile?.gender || "Not specified",
+    emergencyContact: backendProfile?.emergency_contact_name
+      ? `${backendProfile.emergency_contact_phone} (${backendProfile.emergency_contact_name})`
+      : "Not specified",
+    idType: backendPass?.idType || (hasPassPreview ? "Verified Local Tourist Pass" : "Temporary Guest Session"),
+    idHash: backendPass?.did || "DID:GUEST-TEMPORARY",
+    validTill: backendPass
+      ? new Date(backendPass.validTill).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
+      : "18 Aug 2026",
   };
 
   // Safety & SOS State
@@ -491,10 +583,40 @@ function TouristDashboardContent() {
 
   const handleSOS = () => {
     setSosSent(true);
+    // Best-effort: capture location and log a real alert the police dashboard can see,
+    // then still fall through to the direct emergency call (most reliable path).
+    if ("geolocation" in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          emergencyApi
+            .triggerSOS(
+              { latitude: pos.coords.latitude, longitude: pos.coords.longitude },
+              authToken
+            )
+            .catch((err) => console.error("SOS alert dispatch failed:", err));
+        },
+        (err) => console.error("Geolocation unavailable for SOS:", err),
+        { timeout: 5000 }
+      );
+    }
     window.location.href = "tel:112";
   };
 
   const handleCalculateRoute = () => {
+    trainApi
+      .getRoute(origin, destination)
+      .then((route) => {
+        setSearchedRoute({
+          line: route.line,
+          interchange: route.interchange,
+          estimatedMins: route.estimatedMins,
+          fare: route.fare,
+        });
+      })
+      .catch((err) => {
+        console.error("Route lookup failed:", err);
+        setSearchedRoute(null);
+      });
     if (origin === destination) {
       setSearchedRoute({
         line: "Already at destination",
@@ -586,31 +708,79 @@ function TouristDashboardContent() {
     setIsMenuOpen(false);
   };
 
-  // Registration Auth Steps
+  // Registration Auth Steps — now backed by real OTP requests/verification
   const handlePhoneSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!/^\d{7,12}$/.test(authPhone.replace(/\s+/g, ""))) return;
-    setAuthStep("otp");
-    startResendTimer();
+    setAuthError(null);
+    const cleanedPhone = authPhone.replace(/\s+/g, "");
+    if (!/^\d{7,12}$/.test(cleanedPhone)) return;
+
+    setAuthLoading(true);
+    authApi
+      .requestOtp(`${countryCode}${cleanedPhone}`)
+      .then(() => {
+        setAuthStep("otp");
+        startResendTimer();
+      })
+      .catch((err) => setAuthError(err.message || "Couldn't send OTP. Please try again."))
+      .finally(() => setAuthLoading(false));
   };
 
   const handleOtpSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setAuthError(null);
     if (authOtp.length < 4) return;
-    setAuthStep("profile");
+
+    setAuthLoading(true);
+    const cleanedPhone = authPhone.replace(/\s+/g, "");
+    authApi
+      .verifyOtp(`${countryCode}${cleanedPhone}`, authOtp)
+      .then(({ access_token }) => {
+        setToken(access_token);
+        setAuthToken(access_token);
+        return authApi.getMe(access_token);
+      })
+      .then((me) => {
+        setBackendProfile(me);
+        setFullName(me.full_name || "");
+        setEmail(me.email || "");
+        setAuthStep("profile");
+      })
+      .catch((err) => setAuthError(err.message || "Invalid or expired OTP."))
+      .finally(() => setAuthLoading(false));
   };
 
   const handleProfileSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!fullName || !email) return;
-    setHasPassPreview(true);
-    setShowAuthModal(false);
-    setAuthStep("phone");
-    // Show Intro Screen post-registration
-    setShowRegistrationIntro(true);
+    setAuthError(null);
+    if (!fullName || !email || !authToken) return;
+
+    setAuthLoading(true);
+    authApi
+      .updateMe(authToken, {
+        full_name: fullName,
+        email,
+        date_of_birth: dob || undefined,
+        gender: gender || undefined,
+      })
+      .then((me) => {
+        setBackendProfile(me);
+        return passApi.issue(authToken, 14);
+      })
+      .then((pass) => {
+        setBackendPass(pass);
+        setHasPassPreview(true);
+        setShowAuthModal(false);
+        setAuthStep("phone");
+        setShowRegistrationIntro(true);
+      })
+      .catch((err) => setAuthError(err.message || "Couldn't complete registration."))
+      .finally(() => setAuthLoading(false));
   };
 
   const handleSocialAuth = (provider: string) => {
+    // Social login isn't backed by the API yet — kept as a UI-only placeholder
+    // so the button remains functional while only phone OTP is wired to the backend.
     setFullName(`${provider} Traveler`);
     setEmail(`user@${provider.toLowerCase()}.com`);
     setAuthStep("profile");
@@ -619,8 +789,8 @@ function TouristDashboardContent() {
   // Filtered attractions
   const filteredAttractions =
     selectedRegionFilter === "All"
-      ? NEARBY_ATTRACTIONS
-      : NEARBY_ATTRACTIONS.filter((item) => item.region.includes(selectedRegionFilter));
+      ? nearbyAttractions
+      : nearbyAttractions.filter((item) => item.region.includes(selectedRegionFilter));
 
   // ================= 1. INTRO / SPLASH SCREEN (INITIAL LAUNCH) =================
   if (showSplash) {
@@ -1410,8 +1580,8 @@ function TouristDashboardContent() {
             </div>
 
             <div className="space-y-4">
-              {EMERGENCY_SERVICES.map((section, idx) => {
-                const SectionIcon = section.icon;
+              {emergencyServices.map((section, idx) => {
+                const SectionIcon = EMERGENCY_ICON_MAP[section.icon_key] || Hospital;
                 return (
                   <div key={idx} className="bg-white border border-slate-200 p-4 rounded-3xl space-y-3 shadow-sm">
                     <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
@@ -1456,7 +1626,7 @@ function TouristDashboardContent() {
             </div>
 
             <div className="space-y-3">
-              {LOCAL_SCAMS.map((scam) => (
+              {localScams.map((scam) => (
                 <div key={scam.id} className="bg-white border border-amber-200 p-4 rounded-3xl space-y-2.5 shadow-sm">
                   <div className="flex justify-between items-start">
                     <h3 className="font-bold text-sm text-amber-900">{scam.title}</h3>
@@ -1497,7 +1667,7 @@ function TouristDashboardContent() {
             </div>
 
             <div className="space-y-4">
-              {LOCAL_PHRASES.map((group, idx) => (
+              {localPhrases.map((group, idx) => (
                 <div key={idx} className="bg-white border border-slate-200 p-4 rounded-3xl space-y-3 shadow-sm">
                   <h3 className="font-extrabold text-xs text-purple-700 uppercase tracking-wider border-b border-slate-100 pb-2">
                     {group.category}
@@ -1540,7 +1710,7 @@ function TouristDashboardContent() {
             </div>
 
             <div className="space-y-4">
-              {SMART_ITINERARIES.map((item) => (
+              {smartItineraries.map((item) => (
                 <div key={item.id} className="bg-white border border-slate-200 p-4 rounded-3xl space-y-3 shadow-sm">
                   <div className="border-b border-slate-100 pb-2">
                     <h3 className="font-bold text-sm text-indigo-900">{item.title}</h3>
@@ -1676,7 +1846,7 @@ function TouristDashboardContent() {
                     onChange={(e) => setOrigin(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl p-3 text-xs focus:outline-none focus:border-amber-500"
                   >
-                    {MUMBAI_STATIONS.map((st) => (
+                    {mumbaiStations.map((st) => (
                       <option key={st.name} value={st.name}>
                         {st.name} ({st.line})
                       </option>
@@ -1691,7 +1861,7 @@ function TouristDashboardContent() {
                     onChange={(e) => setDestination(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 text-slate-800 rounded-2xl p-3 text-xs focus:outline-none focus:border-amber-500"
                   >
-                    {MUMBAI_STATIONS.map((st) => (
+                    {mumbaiStations.map((st) => (
                       <option key={st.name} value={st.name}>
                         {st.name} ({st.line})
                       </option>
@@ -1830,16 +2000,15 @@ function TouristDashboardContent() {
                 >
                   <div className="relative h-44 w-full bg-slate-100 overflow-hidden">
                     <img
-                    src={spot.image}
-                    alt={spot.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    loading="lazy"
-                    onError={(e) => {
-                      // Automatically fall back to Gateway of India if any image link breaks
-                      (e.currentTarget as HTMLImageElement).src =
-                        "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Mumbai_03-2016_30_Gateway_of_India.jpg/800px-Mumbai_03-2016_30_Gateway_of_India.jpg";
-                    }}
-                  />
+                      src={spot.image || "https://images.unsplash.com/photo-1570168007204-dfb528c6958f?auto=format&fit=crop&w=800&q=80"}
+                      alt={spot.name}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      loading="lazy"
+                      onError={(e) => 
+                        (e.currentTarget as HTMLImageElement).src =
+                          "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Mumbai_03-2016_30_Gateway_of_India.jpg/800px-Mumbai_03-2016_30_Gateway_of_India.jpg";
+                      }}
+                    />
                     <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-slate-950/20 to-transparent" />
 
                     <div className="absolute top-3 left-3 right-3 flex items-center justify-between">
@@ -1899,7 +2068,7 @@ function TouristDashboardContent() {
             </div>
 
             <div className="space-y-3">
-              {NEARBY_HOTELS.map((hotel) => (
+              {nearbyHotels.map((hotel) => (
                 <div key={hotel.id} className="bg-white border border-slate-200 p-4 rounded-3xl space-y-2.5 shadow-sm">
                   <div className="flex justify-between items-start">
                     <div>
@@ -1937,7 +2106,7 @@ function TouristDashboardContent() {
             </div>
 
             <div className="space-y-3">
-              {MUST_TRY_FOOD.map((food) => (
+              {mustTryFood.map((food) => (
                 <div key={food.id} className="bg-white border border-slate-200 p-4 rounded-3xl space-y-2.5 shadow-sm">
                   <div className="flex justify-between items-start">
                     <div>

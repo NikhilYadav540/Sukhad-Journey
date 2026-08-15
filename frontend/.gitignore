@@ -39,6 +39,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+<<<<<<< HEAD
 
 # Python
 _pycache_/
@@ -64,3 +65,5 @@ node_modules/
 # Build
 dist/
 build/
+=======
+>>>>>>> 3ba1cb568ed3d96175bb3c84d70c14eb2d18d192

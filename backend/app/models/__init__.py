@@ -18,6 +18,7 @@ from app.models.content import (
 )
 from app.models.reference import TrainLine, Station, StationOnLine
 from app.models.police import PoliceOfficer, SOSAlert
+from app.models.safety import DangerZone, CrimeReport, NewsItem
 
 __all__ = [
     "User",
@@ -44,4 +45,7 @@ __all__ = [
     "StationOnLine",
     "PoliceOfficer",
     "SOSAlert",
+    "DangerZone",
+    "CrimeReport",
+    "NewsItem",
 ]

@@ -8,7 +8,8 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
-    phone_number = Column(String(15), unique=True, index=True, nullable=False)
+    phone_number = Column(String(20), unique=True, index=True, nullable=True)
+    google_sub = Column(String(128), unique=True, index=True, nullable=True)
     full_name = Column(String(120), nullable=True)
     email = Column(String(150), nullable=True)
     date_of_birth = Column(Date, nullable=True)

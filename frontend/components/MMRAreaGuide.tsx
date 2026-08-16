@@ -20,11 +20,15 @@ export interface AreaDetail {
   safetyScore: number;
   safetyTag: string;
   vibe: string;
+  image?: string | null;
+  websiteUrl?: string | null;
   highlyRecommended: {
     title: string;
     type: string;
     desc: string;
     highlight: string;
+    image?: string | null;
+    websiteUrl?: string | null;
   }[];
   foodHighlights: {
     spot: string;
@@ -118,6 +122,13 @@ export function MMRAreaGuide() {
 
       {/* Selected Area Detail Card */}
       <div className="bg-slate-900 border border-slate-800 p-4 rounded-2xl space-y-4 animate-fade-in">
+        {activeArea.image && (
+          <img
+            src={activeArea.image}
+            alt=""
+            className="w-full h-32 object-cover rounded-xl"
+          />
+        )}
         {/* Area Header */}
         <div className="flex justify-between items-start border-b border-slate-800 pb-3">
           <div>
@@ -128,6 +139,16 @@ export function MMRAreaGuide() {
               </span>
             </div>
             <p className="text-xs text-slate-400 mt-1">{activeArea.vibe}</p>
+            {activeArea.websiteUrl && (
+              <a
+                href={activeArea.websiteUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-block mt-2 text-[10px] font-bold text-emerald-400 hover:text-emerald-300"
+              >
+                Area page ↗
+              </a>
+            )}
           </div>
 
           <div className="text-right shrink-0">
@@ -159,6 +180,11 @@ export function MMRAreaGuide() {
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400">{spot.desc}</p>
+                {spot.websiteUrl && (
+                  <a href={spot.websiteUrl} target="_blank" rel="noreferrer" className="text-[10px] font-bold text-emerald-400">
+                    More ↗
+                  </a>
+                )}
               </div>
             ))}
           </div>

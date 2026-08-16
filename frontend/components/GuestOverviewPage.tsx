@@ -12,6 +12,12 @@ import {
   Heart,
   Landmark,
   UserCheck,
+  MapPinned,
+  Hotel,
+  Languages,
+  CalendarDays,
+  BadgeCheck,
+  ShieldCheck,
 } from "lucide-react";
 
 export default function GuestOverviewPage({
@@ -26,8 +32,19 @@ export default function GuestOverviewPage({
   return (
     <div className="relative min-h-screen bg-[#f8fafc] text-slate-800 p-4 max-w-md mx-auto font-sans pb-12">
       <div className="relative z-10 space-y-5">
+      <div className="flex justify-end">
+        <button
+          onClick={onOpenAuth}
+          className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-[10px] font-extrabold text-emerald-800 shadow-sm transition-colors hover:bg-emerald-50"
+          aria-label="Log in or sign up"
+        >
+          <UserCheck className="h-3.5 w-3.5" />
+          Login / Sign up
+        </button>
+      </div>
+
       {/* 1. BRANDING & CULTURAL HEADER */}
-      <div className="text-center space-y-2 pt-4">
+      <div className="text-center space-y-2">
         <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100/80 border border-emerald-300 text-emerald-800 text-[10px] font-extrabold uppercase tracking-wider shadow-xs">
           <Sparkles className="w-3.5 h-3.5 text-emerald-600" /> Safe Travel & Cultural Portal
         </div>
@@ -191,6 +208,114 @@ export default function GuestOverviewPage({
           <span>Register / Login for Digital ID Pass</span>
         </button>
       </div>
+
+      {/* 5. WHAT SUKHAD-JOURNEY DOES */}
+      <section className="pt-5 space-y-3" aria-labelledby="what-we-do-title">
+        <div className="px-1">
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-emerald-700">
+            Your Mumbai companion
+          </p>
+          <h2 id="what-we-do-title" className="mt-1 text-lg font-black tracking-tight text-slate-900">
+            Safer, simpler travel across MMR
+          </h2>
+          <p className="mt-1.5 text-xs leading-relaxed text-slate-600">
+            Sukhad-Journey brings safety support, local transport guidance, trusted places to visit, and cultural tips into one mobile-friendly portal for every visitor.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            ["Safety first", "SOS, helplines & alerts", ShieldCheck, "bg-rose-50 text-rose-700"],
+            ["Travel smart", "Routes & fair fares", Train, "bg-amber-50 text-amber-700"],
+            ["Explore more", "Places, food & stays", Compass, "bg-emerald-50 text-emerald-700"],
+          ].map(([title, description, Icon, colors]) => {
+            const FeatureIcon = Icon as typeof ShieldCheck;
+            return (
+              <div key={title as string} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-xs">
+                <div className={`inline-flex rounded-xl p-2 ${colors as string}`}>
+                  <FeatureIcon className="h-4 w-4" />
+                </div>
+                <p className="mt-2 text-[11px] font-extrabold text-slate-900">{title as string}</p>
+                <p className="mt-0.5 text-[9px] leading-snug text-slate-500">{description as string}</p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* 6. HOW TO USE */}
+      <section className="rounded-3xl border border-emerald-100 bg-emerald-50/70 p-4" aria-labelledby="how-it-works-title">
+        <div className="flex items-center gap-2">
+          <div className="rounded-xl bg-emerald-600 p-2 text-white">
+            <MapPinned className="h-4 w-4" />
+          </div>
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Simple to use</p>
+            <h2 id="how-it-works-title" className="text-sm font-black text-slate-900">How Sukhad-Journey works</h2>
+          </div>
+        </div>
+
+        <ol className="mt-4 space-y-3">
+          {[
+            ["1", "Start as a guest", "Browse safety tools, local guidance, and places instantly—no account needed."],
+            ["2", "Plan with confidence", "Find train routes, estimate fares, check safety tips, and discover MMR."],
+            ["3", "Register when you need more", "Create your digital tourist pass to save your profile and access personalised support."],
+          ].map(([number, title, description]) => (
+            <li key={number} className="flex gap-3">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-white text-[10px] font-black text-emerald-700 shadow-sm ring-1 ring-emerald-200">
+                {number}
+              </span>
+              <div className="pt-0.5">
+                <p className="text-[11px] font-extrabold text-slate-900">{title}</p>
+                <p className="mt-0.5 text-[10px] leading-relaxed text-slate-600">{description}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      {/* 7. FULL FEATURE OVERVIEW */}
+      <section className="space-y-3" aria-labelledby="features-title">
+        <div className="px-1">
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-400">Inside the portal</p>
+          <h2 id="features-title" className="mt-1 text-base font-black text-slate-900">Everything you need for your journey</h2>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2.5">
+          {[
+            ["Emergency & safety", "One-tap SOS, emergency contacts, safety zones and scam awareness.", PhoneCall, "text-rose-600 bg-rose-50"],
+            ["MMR travel guide", "Explore Mumbai, Thane and Navi Mumbai with practical local guidance.", MapPinned, "text-emerald-700 bg-emerald-50"],
+            ["Train & fare tools", "Navigate suburban lines and estimate local train, auto, bus and cab fares.", Train, "text-amber-700 bg-amber-50"],
+            ["Places to stay & eat", "Discover curated attractions, verified stays and popular food spots.", Hotel, "text-pink-700 bg-pink-50"],
+            ["Local language help", "Learn useful Bambaiya Hindi phrases for everyday conversations.", Languages, "text-violet-700 bg-violet-50"],
+            ["Plans & digital pass", "Use ready-made itineraries and carry your tourist identity pass.", CalendarDays, "text-sky-700 bg-sky-50"],
+          ].map(([title, description, Icon, colors]) => {
+            const FeatureIcon = Icon as typeof ShieldCheck;
+            return (
+              <div key={title as string} className="rounded-2xl border border-slate-200 bg-white p-3.5 shadow-xs">
+                <div className={`inline-flex rounded-xl p-2 ${colors as string}`}>
+                  <FeatureIcon className="h-4 w-4" />
+                </div>
+                <h3 className="mt-2 text-[11px] font-extrabold text-slate-900">{title as string}</h3>
+                <p className="mt-1 text-[10px] leading-relaxed text-slate-500">{description as string}</p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* 8. FOOTER */}
+      <footer className="border-t border-slate-200 pt-5 text-center">
+        <div className="inline-flex items-center gap-1.5 text-[11px] font-extrabold text-[#0f2942]">
+          <BadgeCheck className="h-4 w-4 text-emerald-600" />
+          SUKHAD-JOURNEY
+        </div>
+        <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
+          Smart tourist assistance and safety support for the Mumbai Metropolitan Region.
+        </p>
+        <p className="mt-3 text-[10px] font-semibold text-emerald-700">अतिथि देवो भव · Your journey, our priority</p>
+        <p className="mt-3 text-[9px] text-slate-400">© {new Date().getFullYear()} Sukhad-Journey. Travel safely and respectfully.</p>
+      </footer>
       </div>
     </div>
   );

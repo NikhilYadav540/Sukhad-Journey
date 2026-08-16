@@ -1,9 +1,13 @@
+from time import sleep
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import OperationalError
 
-from app.database import Base, engine
+from app.database import prepare_database, SessionLocal, engine
 from app.config import get_settings
+from app.geo_coords import apply_coordinates
 import app.models  # noqa: F401 -- ensures all models are registered before create_all
 
 from app.routers import auth, content, trains, fare, itineraries, tourist_pass, emergency, police
@@ -11,7 +15,19 @@ from app.routers import auth, content, trains, fare, itineraries, tourist_pass, 
 settings = get_settings()
 
 # For production, replace with Alembic migrations instead of create_all.
-Base.metadata.create_all(bind=engine)
+for attempt in range(4):
+    try:
+        prepare_database()
+        _db = SessionLocal()
+        try:
+            apply_coordinates(_db)
+        finally:
+            _db.close()
+        break
+    except OperationalError:
+        if attempt == 3:
+            raise
+        sleep(1.5 * (attempt + 1))
 
 app = FastAPI(
     title="Sukhad-Journey API",
@@ -42,3 +58,8 @@ app.include_router(police.router)
 @app.get("/api/health")
 def health_check():
     return {"status": "ok"}
+
+
+@app.on_event("shutdown")
+def shutdown_db():
+    engine.dispose()

@@ -3,8 +3,8 @@ Populates the database with the real content that used to live as hardcoded
 arrays in the frontend (app/tourist/page.tsx, components/MMRAreaGuide.tsx).
 Run with: python -m app.seed
 """
-from passlib.context import CryptContext
-from app.database import SessionLocal, Base, engine
+from app.core.security import hash_password
+from app.database import SessionLocal, prepare_database
 import app.models  # noqa: F401 registers all models
 from app.models.content import (
     Attraction, Hotel, FoodSpot, EmergencyServiceCategory, EmergencyServiceItem,
@@ -13,14 +13,21 @@ from app.models.content import (
 )
 from app.models.reference import TrainLine, Station, StationOnLine
 from app.models.police import PoliceOfficer
+from app.models.safety import DangerZone, CrimeReport, NewsItem
+from app.place_images import apply_place_images, BY_NAME
+from app.place_images import (
+    GATEWAY, MARINE_DRIVE, CSMT, TAJ_PALACE, HAJI_ALI, LILAVATI, NANAVATI,
+    BOMBAY_HOSPITAL, INHS_ASVINI, SGNP_GATE, KANHERI, PAGODA, ELEPHANTA,
+    JUHU, BANDRA_FORT, CHURCHGATE, LEOPOLD, UPVAN, BANDRA_NIGHT,
+    DADAR, POLICE_HQ,
+)
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-Base.metadata.create_all(bind=engine)
+prepare_database()
 db = SessionLocal()
 
 # ---------- wipe existing seed-managed rows (idempotent re-seeding) ----------
 for model in [
+    CrimeReport, NewsItem, DangerZone,
     Attraction, Hotel, FoodSpot, EmergencyServiceItem, EmergencyServiceCategory,
     LocalScam, Phrase, PhraseCategory, SmartItineraryTimeSlot, SmartItinerary,
     MMRAreaSpot, MMRAreaFood, MMRArea, StationOnLine, Station, TrainLine, PoliceOfficer,
@@ -32,57 +39,68 @@ db.commit()
 attractions = [
     dict(name="Gateway of India", region="South Mumbai", category="Historical Monument", rating=4.8,
          distance="1.2 km", safety_status="Safe Zone ✓",
-         image="https://images.unsplash.com/photo-1570168007204-dfb528c6958f?auto=format&fit=crop&w=800&q=80",
+         image=GATEWAY,
+         website_url="https://en.wikipedia.org/wiki/Gateway_of_India",
          description="Iconic 20th-century waterfront arch monument built overlooking the Arabian Sea.",
          map_query="Gateway+of+India+Mumbai"),
     dict(name="Marine Drive Promenade", region="South Mumbai", category="Coastal Boulevard", rating=4.9,
          distance="0.5 km", safety_status="Safe Zone ✓",
-         image="https://images.unsplash.com/photo-1567157577867-05ccb1388e66?auto=format&fit=crop&w=800&q=80",
+         image=MARINE_DRIVE,
+         website_url="https://en.wikipedia.org/wiki/Marine_Drive,_Mumbai",
          description="3.6 km long arc-shaped boulevard along the coast, famous for Queen's Necklace night views.",
          map_query="Marine+Drive+Mumbai"),
     dict(name="Sanjay Gandhi National Park", region="Western Suburbs (Borivali)", category="Nature & Wildlife",
          rating=4.7, distance="22.5 km", safety_status="Patrolled Trail ✓",
-         image="https://images.unsplash.com/photo-1628155930542-3c7a64e2c833?auto=format&fit=crop&w=800&q=80",
+         image=SGNP_GATE,
+         website_url="https://en.wikipedia.org/wiki/Sanjay_Gandhi_National_Park",
          description="Sprawling protected rainforest home to free-roaming leopards, flora, and scenic lakes.",
          map_query="Sanjay+Gandhi+National+Park+Borivali"),
     dict(name="Kanheri Caves", region="Western Suburbs (Borivali)", category="Heritage Ancient Caves", rating=4.8,
          distance="25.0 km", safety_status="Safe Zone ✓",
-         image="https://images.unsplash.com/photo-1600100397608-f010e423b971?auto=format&fit=crop&w=800&q=80",
+         image=KANHERI,
+         website_url="https://en.wikipedia.org/wiki/Kanheri_Caves",
          description="109 ancient Buddhist rock-cut monuments inside Sanjay Gandhi National Park.",
          map_query="Kanheri+Caves+Mumbai"),
     dict(name="Bandra Fort & Sea Link Promenade", region="Western Suburbs (Bandra)", category="Coastal Fort & Sea View",
          rating=4.6, distance="12.8 km", safety_status="Safe Zone ✓",
-         image="https://images.unsplash.com/photo-1582510003544-4d00b7f74220?auto=format&fit=crop&w=800&q=80",
+         image=BANDRA_FORT,
+         website_url="https://en.wikipedia.org/wiki/Castella_de_Aguada",
          description="17th-century Portuguese fort offering stunning vistas of the iconic Rajiv Gandhi Sea Link.",
          map_query="Bandra+Fort+Mumbai"),
     dict(name="Global Vipassana Pagoda", region="Northern Suburbs (Gorai)", category="Spiritual Monument", rating=4.8,
          distance="32.0 km", safety_status="Safe Zone ✓",
-         image="https://images.unsplash.com/photo-1609949279531-cf48d64bed89?auto=format&fit=crop&w=800&q=80",
+         image=PAGODA,
+         website_url="https://www.globalpagoda.org/",
          description="Massive golden dome meditation hall and peace monument built on the Gorai peninsula.",
          map_query="Global+Vipassana+Pagoda+Gorai"),
     dict(name="Elephanta Caves Island", region="MMR Harbor", category="UNESCO World Heritage Site", rating=4.7,
          distance="11.0 km (Ferry Ride)", safety_status="Patrolled Island ✓",
-         image="https://images.unsplash.com/photo-1620802051782-725fa33f9232?auto=format&fit=crop&w=800&q=80",
+         image=ELEPHANTA,
+         website_url="https://en.wikipedia.org/wiki/Elephanta_Caves",
          description="Rock-cut cave temples dedicated to Lord Shiva, accessible by boat from Gateway of India.",
          map_query="Elephanta+Caves+Mumbai"),
     dict(name="Haji Ali Dargah", region="South-Central Mumbai", category="Coastal Shrine", rating=4.7,
          distance="7.2 km", safety_status="Monitored Zone ✓",
-         image="https://images.unsplash.com/photo-1590050752117-238cb0fb12b1?auto=format&fit=crop&w=800&q=80",
+         image=HAJI_ALI,
+         website_url="https://en.wikipedia.org/wiki/Haji_Ali_Dargah",
          description="Historic 15th-century mosque and tomb situated on an islet connected by a narrow causeway.",
          map_query="Haji+Ali+Dargah+Mumbai"),
     dict(name="CSMT World Heritage Terminus", region="South Mumbai", category="Colonial Architecture", rating=4.9,
          distance="1.8 km", safety_status="High Security Zone ✓",
-         image="https://images.unsplash.com/photo-1566552881560-0be862a7c445?auto=format&fit=crop&w=800&q=80",
+         image=CSMT,
+         website_url="https://en.wikipedia.org/wiki/Chhatrapati_Shivaji_Terminus",
          description="Victorian Gothic Revival architectural masterpiece and bustling central transport hub.",
          map_query="Chhatrapati+Shivaji+Maharaj+Terminus"),
     dict(name="Upvan Lake & Yeoor Hills", region="Thane MMR Zone", category="Scenic Nature Reserve", rating=4.6,
          distance="28.0 km", safety_status="Safe Zone ✓",
-         image="https://images.unsplash.com/photo-1506744038136-46273834b3fb?auto=format&fit=crop&w=800&q=80",
+         image=UPVAN,
+         website_url="https://en.wikipedia.org/wiki/Upvan_Lake",
          description="Serene lakeside garden nestled against the lush forest hills of Sanjay Gandhi National Park in Thane.",
          map_query="Upvan+Lake+Thane"),
     dict(name="Central Park & Jewel of Navi Mumbai", region="Navi Mumbai Zone", category="Urban Park & Botanical Garden",
          rating=4.6, distance="30.0 km", safety_status="Safe Zone ✓",
-         image="https://images.unsplash.com/photo-1519331379826-f10be5486c6f?auto=format&fit=crop&w=800&q=80",
+         image="https://ilovenavimumbai.com/wp-content/uploads/2025/12/Central-Park-Photos.webp",
+         website_url="https://en.wikipedia.org/wiki/Central_Park,_Kharghar",
          description="Massive urban recreation park featuring landscaped lawns, amphitheaters, and walking trails.",
          map_query="Central+Park+Kharghar+Navi+Mumbai"),
 ]
@@ -92,9 +110,13 @@ for a in attractions:
 # ================= HOTELS =================
 hotels = [
     dict(name="The Taj Mahal Palace", category="5-Star Luxury Heritage", rating=4.9, price_range="₹22,000 / night",
-         distance="0.8 km", description="World-famous heritage luxury hotel offering breathtaking views of the Gateway of India."),
+         distance="0.8 km", image=TAJ_PALACE,
+         website_url="https://www.tajhotels.com/en-in/hotels/taj-mahal-palace-mumbai",
+         description="World-famous heritage luxury hotel offering breathtaking views of the Gateway of India."),
     dict(name="Trident Hotel Nariman Point", category="5-Star Business & Luxury", rating=4.7, price_range="₹14,000 / night",
-         distance="0.4 km", description="Located right on Marine Drive offering panoramic coastal ocean views."),
+         distance="0.4 km", image=MARINE_DRIVE,
+         website_url="https://www.tridenthotels.com/hotels-in-mumbai-nariman-point",
+         description="Located right on Marine Drive offering panoramic coastal ocean views."),
 ]
 for h in hotels:
     db.add(Hotel(**h))
@@ -102,10 +124,12 @@ for h in hotels:
 # ================= FOOD =================
 food_spots = [
     dict(name="Leopold Cafe & Bar", cuisine="Irani & Continental Heritage Cafe", must_try_dish="Keema Pav & Cold Coffee",
-         rating=4.6, distance="1.4 km",
+         rating=4.6, distance="1.4 km", image=LEOPOLD,
+         website_url="https://en.wikipedia.org/wiki/Leopold_Cafe",
          description="Legendary cafe operating since 1871. Featured in Shantaram; famous for its lively vintage ambience."),
     dict(name="Bademiya Kebabs", cuisine="Mughlai Street Food", must_try_dish="Chicken Baida Roti & Seekh Kebab",
-         rating=4.5, distance="1.3 km",
+         rating=4.5, distance="1.3 km", image=TAJ_PALACE,
+         website_url="https://en.wikipedia.org/wiki/Bademiya",
          description="World-renowned late-night street food destination behind the Taj Mahal Palace."),
 ]
 for f in food_spots:
@@ -114,18 +138,18 @@ for f in food_spots:
 # ================= EMERGENCY SERVICES =================
 emergency_services = [
     dict(category="24/7 Hospitals", icon_key="hospital", color="emerald", items=[
-        dict(name="Bombay Hospital & Medical Research Centre", phone="+912222067676", distance="1.1 km", location="Marine Lines"),
-        dict(name="INS Asvini Naval Hospital", phone="+912222151661", distance="2.4 km", location="Colaba"),
-        dict(name="Lilavati Hospital & Research Centre", phone="+912226751000", distance="14.2 km", location="Bandra West"),
+        dict(name="Bombay Hospital & Medical Research Centre", phone="+912222067676", distance="1.1 km", location="Marine Lines", website_url="https://bombayhospital.com/"),
+        dict(name="INS Asvini Naval Hospital", phone="+912222151661", distance="2.4 km", location="Colaba", website_url="https://indiannavy.nic.in/content/inhs-asvini"),
+        dict(name="Lilavati Hospital & Research Centre", phone="+912226751000", distance="14.2 km", location="Bandra West", website_url="https://www.lilavatihospital.com/"),
     ]),
     dict(category="Tourist Police Squads", icon_key="siren", color="sky", items=[
-        dict(name="Colaba Tourist Police Precinct", phone="112", distance="0.8 km", location="Colaba Causeway"),
-        dict(name="Azad Maidan Police Station (CST Area)", phone="+912222620330", distance="2.1 km", location="Fort"),
-        dict(name="Marine Drive Police Control", phone="+912222812061", distance="1.3 km", location="Marine Drive"),
+        dict(name="Colaba Tourist Police Precinct", phone="112", distance="0.8 km", location="Colaba Causeway", website_url="https://mumbaipolice.gov.in/"),
+        dict(name="Azad Maidan Police Station (CST Area)", phone="+912222620330", distance="2.1 km", location="Fort", website_url="https://mumbaipolice.gov.in/"),
+        dict(name="Marine Drive Police Control", phone="+912222812061", distance="1.3 km", location="Marine Drive", website_url="https://mumbaipolice.gov.in/"),
     ]),
     dict(category="24/7 Pharmacies", icon_key="pill", color="teal", items=[
-        dict(name="Wellness Forever 24x7 Chemist", phone="+912222851122", distance="0.5 km", location="Churchgate"),
-        dict(name="Apollo Pharmacy 24 Hours", phone="+912222020202", distance="1.2 km", location="Fort"),
+        dict(name="Wellness Forever 24x7 Chemist", phone="+912222851122", distance="0.5 km", location="Churchgate", website_url="https://www.wellnessforever.com/"),
+        dict(name="Apollo Pharmacy 24 Hours", phone="+912222020202", distance="1.2 km", location="Fort", website_url="https://www.apollopharmacy.in/"),
     ]),
 ]
 for group in emergency_services:
@@ -134,19 +158,26 @@ for group in emergency_services:
     db.add(cat)
     db.flush()
     for it in items:
+        it["image"] = BY_NAME.get(it["name"])
         db.add(EmergencyServiceItem(category_id=cat.id, **it))
 
 # ================= LOCAL SCAMS =================
 scams = [
     dict(title="Tampered Auto/Taxi Meter Fraud", location="Airports, CSMT & Gateway of India", severity="High Risk",
          description="Drivers may claim the meter is broken or request flat exorbitant fares for short distances.",
-         prevention="Insist on metered rate or use our built-in Cab & Auto Estimator to show standard tariff rates. Threaten to call 112 if refused."),
+         prevention="Insist on metered rate or use our built-in Cab & Auto Estimator to show standard tariff rates. Threaten to call 112 if refused.",
+         image=DADAR,
+         website_url="https://mumbaipolice.gov.in/"),
     dict(title="Fake Unregistered Guides", location="Gateway of India & Elephanta Caves", severity="Moderate",
          description="Touts wearing official-looking lanyards offer 'VIP entry' or private tours at 10x the price.",
-         prevention="Ask for an official Ministry of Tourism ID card before accepting any guide services."),
+         prevention="Ask for an official Ministry of Tourism ID card before accepting any guide services.",
+         image=GATEWAY,
+         website_url="https://tourism.gov.in/"),
     dict(title="Pigeon Feeding & Photo Traps", location="Gateway Plaza & Marine Drive", severity="Low Risk",
          description="Vendors force bird seeds into your hand for photos and demand large cash fees afterward.",
-         prevention="Politely say 'No thank you' and walk away immediately without accepting feed bags."),
+         prevention="Politely say 'No thank you' and walk away immediately without accepting feed bags.",
+         image=MARINE_DRIVE,
+         website_url="https://www.maharashtratourism.gov.in/"),
 ]
 for s in scams:
     db.add(LocalScam(**s))
@@ -178,14 +209,16 @@ for category_name, phrases in phrase_groups:
 # ================= SMART ITINERARIES =================
 smart_itineraries = [
     dict(slug="1day-heritage", title="1-Day Heritage & Seafront Trail",
-         subtitle="Covers iconic South Mumbai landmarks safely and efficiently", slots=[
+         subtitle="Covers iconic South Mumbai landmarks safely and efficiently",
+         image=GATEWAY, slots=[
              ("09:00 AM", "Gateway of India & Taj Mahal Palace", "Best light for photos, low crowd."),
              ("11:30 AM", "CSMT Station & Fort Colonial Walking Tour", "Stick to patrolled heritage walkways."),
              ("02:00 PM", "Lunch at Leopold Cafe or Britannia & Co.", "Heritage Parsi & Irani delicacies."),
              ("05:00 PM", "Sunset stroll along Marine Drive Promenade", "Well-lit and heavily patrolled tourist precinct."),
          ]),
     dict(slug="3day-ultimate", title="3-Day Ultimate Mumbai Explorer",
-         subtitle="Complete cultural, shopping, and food immersion", slots=[
+         subtitle="Complete cultural, shopping, and food immersion",
+         image=BANDRA_FORT, slots=[
              ("Day 1", "South Mumbai Heritage & Gateway of India Boat Cruise", "Full day in South District."),
              ("Day 2", "Bandra Fort, Linking Road Shopping & Carter Road Promenade", "Trendy suburban experience."),
              ("Day 3", "Sanjay Gandhi National Park & Kanheri Caves Trail", "Nature & ancient Buddhist rock carvings."),
@@ -205,6 +238,8 @@ mmr_areas = [
          safety_tag="High Security • Active Nightlife",
          vibe="Bustling transit hub, Bollywood studios, coastal sunsets & commercial centers.",
          transit_and_safety_tip="Major interchange hub connecting Metro Line 1 (Ghatkopar-Versova) with the Western Local Rail. Stay alert at Andheri Station during 8–10 AM & 6–9 PM peak hours.",
+         image=BANDRA_FORT,
+         website_url="https://en.wikipedia.org/wiki/Andheri",
          spots=[
              ("Versova Beach & Promenade", "Coastal Spot", "Lesser-crowded coastal promenade famous for quiet sunset walks and trendy cafes.", "⭐ Highly Recommended for Sunsets"),
              ("Mahakali Caves (Kondivite)", "Heritage Site", "19 ancient rock-cut Buddhist caves dating back to the 1st century BCE in Andheri East.", "🏛️ Ancient Heritage Gem"),
@@ -218,6 +253,8 @@ mmr_areas = [
          safety_tag="Family Safe • Suburb Residential Hub",
          vibe="Family-friendly suburban haven, famous street food trails, and gateway to green parks.",
          transit_and_safety_tip="Auto-rickshaws strictly operate by official meter rates here. Very safe for late-night family walks around Mahavir Nagar.",
+         image=LEOPOLD,
+         website_url="https://en.wikipedia.org/wiki/Kandivali",
          spots=[
              ("Mahavir Nagar Khau Galli", "Food Street", "One of Mumbai's most iconic vegetarian street food nightlife streets.", "🔥 Must-Visit Food Hub"),
              ("Growel's 101 Mall (East)", "Shopping & Dining", "Neoclassical European-themed mall with family entertainment and dining.", "🛍️ Family Mall"),
@@ -230,6 +267,8 @@ mmr_areas = [
          safety_tag="Well-Patrolled • Central-East Hub",
          vibe="Culture-rich central junction, famous vegetarian cuisine, and mega shopping destinations.",
          transit_and_safety_tip="Ghatkopar is the terminal station for Metro Line 1 connecting directly to Western Suburbs (Andheri/Versova). Auto meters are standard.",
+         image=CSMT,
+         website_url="https://en.wikipedia.org/wiki/Ghatkopar",
          spots=[
              ("R-City Mall (Ghatkopar West)", "Mega Mall", "One of the largest shopping malls in MMR with 300+ stores, indoor gaming, and multiplexes.", "⭐ Highly Recommended"),
              ("Ghatkopar Khau Galli (Vallabh Road)", "Food Street", "World-renowned street food strip famous for inventive vegetarian dishes.", "🥪 Legendary Eats"),
@@ -242,6 +281,8 @@ mmr_areas = [
          safety_tag="High-Traffic Hub • Stay Vigilant",
          vibe="Massive commercial hub, major railway interchange, and premier luxury mall gateway.",
          transit_and_safety_tip="Kurla is a heavy interchange junction (Central + Harbour Lines). Watch belongings on platform bridges and use pre-booked cabs or meters outside Phoenix Marketcity.",
+         image=MARINE_DRIVE,
+         website_url="https://en.wikipedia.org/wiki/Kurla",
          spots=[
              ("Phoenix Marketcity (Kurla West)", "Luxury & Entertainment Mall", "Colossal multi-floor mall with international brands, concerts, and fine dining.", "💎 Premium Destination"),
              ("BKC Border Promenade", "Business District", "Adjacent to Bandra-Kurla Complex with landscaped walkways, art installations, and upscale bars.", "🏢 Modern Corporate Zone"),
@@ -254,6 +295,8 @@ mmr_areas = [
          safety_tag="Scenic Coastal Edge • Extended Zone",
          vibe="Historical Buddhist heritage, peaceful black-sand beaches, and budget coastal retreats.",
          transit_and_safety_tip="Auto-rickshaws operate on fixed rates (no meters). Confirm auto fares before boarding at Nallasopara Station. Plan return travel before 9:00 PM.",
+         image=JUHU,
+         website_url="https://en.wikipedia.org/wiki/Nala_Sopara",
          spots=[
              ("Kalamb Beach (Nallasopara West)", "Quiet Beach Retreat", "Serene, semi-black sand beach away from city crowds; ideal for peaceful ocean views.", "🏖️ Quiet Escape"),
              ("Ancient Nallasopara Stupa", "Historical Monument", "One of the oldest Buddhist stupas in Western India (Ashokan era archaeological site).", "📜 Ancient History"),
@@ -322,15 +365,99 @@ for seq, name in enumerate(central_order):
 for seq, name in enumerate(harbour_order):
     db.add(StationOnLine(line_id=harbour_line.id, station_id=station_objs[name].id, sequence=seq))
 
+# ================= DANGER ZONES =================
+colaba = DangerZone(
+    name="Colaba Causeway late-night pocket",
+    risk_level="yellow", crime_rate=6.4,
+    center_lat=18.9156, center_lng=72.8312, radius_meters=400,
+    description="Crowded tourist market after 10 PM. Watch for pickpockets and touts near Gateway plaza.",
+    image=GATEWAY,
+    website_url="https://en.wikipedia.org/wiki/Colaba",
+)
+cst = DangerZone(
+    name="CSMT station concourse",
+    risk_level="yellow", crime_rate=7.1,
+    center_lat=18.9401, center_lng=72.8352, radius_meters=350,
+    description="Peak-hour crush and bag-snatch reports on foot over-bridges. Keep valuables front-facing.",
+    image=CSMT,
+    website_url="https://en.wikipedia.org/wiki/Chhatrapati_Shivaji_Terminus",
+)
+marine = DangerZone(
+    name="Marine Drive night stretch",
+    risk_level="green", crime_rate=3.2,
+    center_lat=18.9432, center_lng=72.8236, radius_meters=500,
+    description="Well-lit promenade with regular patrols. Stay on the main walkway after midnight.",
+    image=MARINE_DRIVE,
+    website_url="https://en.wikipedia.org/wiki/Marine_Drive,_Mumbai",
+)
+db.add_all([colaba, cst, marine])
+db.flush()
+
+# ================= CRIME REPORTS =================
+db.add_all([
+    CrimeReport(
+        danger_zone_id=colaba.id, crime_type="Pickpocketing",
+        location_label="Colaba Causeway",
+        description="Tourists reported wallet thefts in dense souvenir lanes during evening hours.",
+        latitude=18.9156, longitude=72.8312, status="verified",
+        image=DADAR,
+        website_url="https://mumbaipolice.gov.in/",
+    ),
+    CrimeReport(
+        danger_zone_id=cst.id, crime_type="Bag snatching",
+        location_label="CSMT foot over-bridge",
+        description="Unattended backpacks taken during peak suburban arrival windows.",
+        latitude=18.9401, longitude=72.8352, status="verified",
+        image=CSMT,
+        website_url="https://timesofindia.indiatimes.com/city/mumbai",
+    ),
+    CrimeReport(
+        danger_zone_id=marine.id, crime_type="Tourist overcharging",
+        location_label="Marine Drive taxi stand",
+        description="Unmetered taxi quotes reported to visitors walking from Nariman Point.",
+        latitude=18.9432, longitude=72.8236, status="verified",
+        image=MARINE_DRIVE,
+        website_url="https://mumbaipolice.gov.in/",
+    ),
+])
+
+# ================= CITY NEWS =================
+db.add_all([
+    NewsItem(
+        title="Mumbai Police tourist helpline 1363 remains active 24x7",
+        summary="Visitors can call 1363 or 112 for immediate assistance across MMR tourist precincts.",
+        category="Safety",
+        image=POLICE_HQ,
+        website_url="https://mumbaipolice.gov.in/",
+    ),
+    NewsItem(
+        title="Western and Central locals: peak-hour crowding advisory",
+        summary="Avoid 8–10 AM and 6–9 PM on Churchgate–Virar and CSMT–Kalyan if travelling with luggage.",
+        category="Transit",
+        image=CSMT,
+        website_url="https://www.mumbailive.com/en/transport",
+    ),
+    NewsItem(
+        title="Monsoon high-tide alert for Marine Drive and Colaba",
+        summary="BMC posts tide timings; stay behind railings on the promenade during high swell.",
+        category="Weather",
+        image=MARINE_DRIVE,
+        website_url="https://timesofindia.indiatimes.com/city/mumbai",
+    ),
+])
+
 # ================= DEMO POLICE OFFICER =================
+apply_place_images(db)
+
 db.add(PoliceOfficer(
     badge_id="MUM-1024",
     full_name="Insp. R. Deshmukh",
-    password_hash=pwd_context.hash("demo1234"),
+    password_hash=hash_password("demo1234"),
     precinct="Mumbai Central Emergency Dispatch",
 ))
 
 db.commit()
 db.close()
 print("Seed complete: attractions, hotels, food, emergency services, scams, phrasebook,")
-print("smart itineraries, MMR areas, stations/lines, and 1 demo police officer (MUM-1024 / demo1234).")
+print("smart itineraries, MMR areas, stations/lines, danger zones, crime reports, news,")
+print("and 1 demo police officer (MUM-1024 / demo1234).")

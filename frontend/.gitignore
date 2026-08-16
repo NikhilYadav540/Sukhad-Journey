@@ -32,6 +32,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.local.example
 
 # vercel
 .vercel
@@ -39,31 +40,3 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-<<<<<<< HEAD
-
-# Python
-_pycache_/
-*.py[cod]
-*.pyo
-
-# Virtual environments
-.venv/
-venv/
-env/
-
-# Environment/secrets
-.env
-
-# Local databases
-*.db
-*.sqlite
-*.sqlite3
-
-# Node
-node_modules/
-
-# Build
-dist/
-build/
-=======
->>>>>>> 3ba1cb568ed3d96175bb3c84d70c14eb2d18d192

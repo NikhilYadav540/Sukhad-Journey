@@ -2,16 +2,13 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from passlib.context import CryptContext
-
 from app.database import get_db
 from app.models.police import PoliceOfficer, SOSAlert
 from app.models.user import User
 from app.schemas.police import PoliceLoginRequest, PoliceTokenResponse, SOSAlertOut
-from app.core.security import create_access_token, decode_access_token
+from app.core.security import create_access_token, decode_access_token, verify_password
 
 router = APIRouter(prefix="/api/police", tags=["police"])
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 police_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/police/login")
 
 
@@ -31,7 +28,7 @@ def get_current_officer(
 @router.post("/login", response_model=PoliceTokenResponse)
 def police_login(payload: PoliceLoginRequest, db: Session = Depends(get_db)):
     officer = db.query(PoliceOfficer).filter(PoliceOfficer.badge_id == payload.badge_id).first()
-    if not officer or not pwd_context.verify(payload.password, officer.password_hash):
+    if not officer or not verify_password(payload.password, officer.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid badge ID or password")
 
     token = create_access_token(subject=str(officer.id), extra_claims={"role": "police"})

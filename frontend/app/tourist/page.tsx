@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 
@@ -16,6 +16,7 @@ const LiveSafetyMap = dynamic(() => import("@/components/LiveSafetyMap"), {
 import GuestOverviewPage from "@/components/GuestOverviewPage";
 import { SafetyHeader } from "@/components/SafetyHeader";
 import { SOSButton } from "@/components/SOSButton";
+import AreaAnalysis from "@/components/AreaAnalysis";
 import { MUMBAI_GRAPH, calculateOfficialFare, RouteEdge } from "@/utils/trainNetwork";
 import { MMRAreaGuide } from "@/components/MMRAreaGuide";
 import {
@@ -52,20 +53,94 @@ import {
   Lock,
   Mail,
   CheckCircle2,
+  Newspaper,
+  ShoppingBasket,
+  Store,
+  Route,
 } from "lucide-react";
 import {
-  authApi, passApi, emergencyApi, contentApi, trainApi,
-  getToken, setToken, clearToken,
+  authApi, passApi, emergencyApi, contentApi, trainApi, fareApi,
+  getToken, setToken, clearToken, assetUrl,
   type AttractionDTO, type HotelDTO, type FoodSpotDTO, type EmergencyServiceCategoryDTO,
   type LocalScamDTO, type PhraseCategoryDTO, type SmartItineraryDTO, type StationDTO,
+  type FareEstimateDTO, type NewsItemDTO, type CrimeReportDTO, type DangerZoneDTO, type AnalyzedPlaceDTO,
 } from "@/lib/api";
+import { loadGoogleIdentity } from "@/lib/googleSignIn";
 
 // Maps backend icon_key strings to the actual lucide-react component (icons can't cross a JSON boundary)
 const EMERGENCY_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   hospital: Hospital,
   siren: Siren,
   pill: Pill,
+  store: Store,
+  grocery: ShoppingBasket,
 };
+
+async function resolveMapCoords(place: {
+  latitude?: number | null;
+  longitude?: number | null;
+  mapQuery?: string | null;
+  name: string;
+}): Promise<{ lat: number; lng: number } | null> {
+  if (place.latitude != null && place.longitude != null) {
+    return { lat: place.latitude, lng: place.longitude };
+  }
+  const q = `${(place.mapQuery || place.name).replace(/\+/g, " ")} Mumbai`;
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=1`
+    );
+    const data = await res.json();
+    if (!data[0]) return null;
+    return { lat: Number(data[0].lat), lng: Number(data[0].lon) };
+  } catch {
+    return null;
+  }
+}
+
+async function readCurrentGps(): Promise<{ lat: number; lng: number } | null> {
+  if (typeof navigator === "undefined" || !("geolocation" in navigator)) return null;
+  if (typeof window !== "undefined" && !window.isSecureContext) return null;
+  try {
+    const pos = await new Promise<GeolocationPosition>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, {
+        enableHighAccuracy: true,
+        timeout: 8000,
+        maximumAge: 20000,
+      });
+    });
+    if (pos.coords.accuracy > 8000) return null;
+    return { lat: pos.coords.latitude, lng: pos.coords.longitude };
+  } catch {
+    return null;
+  }
+}
+
+function kmBetween(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number }
+) {
+  const dLat = ((b.lat - a.lat) * Math.PI) / 180;
+  const dLng = ((b.lng - a.lng) * Math.PI) / 180;
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(x));
+}
+
+function WebsiteLink({ href, label = "Website" }: { href?: string | null; label?: string }) {
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="text-[11px] font-extrabold text-sky-800 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-3 py-1.5 rounded-xl flex items-center gap-1 transition-all"
+    >
+      {label} <ExternalLink className="w-3 h-3" />
+    </a>
+  );
+}
 
 // ================= LIVE DATA (fetched from the FastAPI backend on mount) =================
 
@@ -82,10 +157,10 @@ const MUMBAI_STATIONS = Object.keys(MUMBAI_GRAPH).map((stationName) => {
   };
 });
 
-const EMERGENCY_SERVICES = [
+const EMERGENCY_SERVICES: EmergencyServiceCategoryDTO[] = [
   {
     category: "24/7 Hospitals",
-    icon: Hospital,
+    icon_key: "hospital",
     color: "emerald",
     list: [
       { name: "Bombay Hospital & Medical Research Centre", phone: "+912222067676", distance: "1.1 km", location: "Marine Lines" },
@@ -95,7 +170,7 @@ const EMERGENCY_SERVICES = [
   },
   {
     category: "Tourist Police Squads",
-    icon: Siren,
+    icon_key: "siren",
     color: "sky",
     list: [
       { name: "Colaba Tourist Police Precinct", phone: "112", distance: "0.8 km", location: "Colaba Causeway" },
@@ -105,7 +180,7 @@ const EMERGENCY_SERVICES = [
   },
   {
     category: "24/7 Pharmacies",
-    icon: Pill,
+    icon_key: "pill",
     color: "teal",
     list: [
       { name: "Wellness Forever 24x7 Chemist", phone: "+912222851122", distance: "0.5 km", location: "Churchgate" },
@@ -200,7 +275,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.8,
     distance: "1.2 km",
     safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1570168007204-dfb528c6958f?auto=format&fit=crop&w=800&q=80",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Mumbai_03-2016_30_Gateway_of_India.jpg?width=1280",
     description: "Iconic 20th-century waterfront arch monument built overlooking the Arabian Sea.",
     mapQuery: "Gateway+of+India+Mumbai",
   },
@@ -212,7 +287,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.9,
     distance: "0.5 km",
     safetyStatus: "Safe Zone ✓",
-    image: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTiH_9d_mamLRPLXm1hKQWA9qzJc66ekMLmEoJoqBxuNav4Ie5MF5GTW8Y&s=10",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Mumbai_03-2016_27_skyline_at_Marine_Drive.jpg?width=1280",
     description: "3.6 km long arc-shaped boulevard along the coast, famous for Queen's Necklace night views.",
     mapQuery: "Marine+Drive+Mumbai",
   },
@@ -224,7 +299,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.7,
     distance: "22.5 km",
     safetyStatus: "Patrolled Trail ✓",
-    image: "https://i.pinimg.com/736x/1f/40/a2/1f40a23972312ea7e98f2cd87cbee70a.jpg",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Entrance_of_Sanjay_Gandhi_National_Park.JPG?width=1280",
     description: "Sprawling protected rainforest home to free-roaming leopards, flora, and scenic lakes.",
     mapQuery: "Sanjay+Gandhi+National+Park+Borivali",
   },
@@ -236,7 +311,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.8,
     distance: "25.0 km",
     safetyStatus: "Safe Zone ✓",
-    image: "https://magicalmumbaitours.com/wp-content/uploads/2023/07/kanheri-caves-2.webp",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Kanheri_Caves_prayer_hall.JPG?width=1280",
     description: "109 ancient Buddhist rock-cut monuments inside Sanjay Gandhi National Park.",
     mapQuery: "Kanheri+Caves+Mumbai",
   },
@@ -248,7 +323,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.6,
     distance: "12.8 km",
     safetyStatus: "Safe Zone ✓",
-    image: "https://images.unsplash.com/photo-1567157577867-05ccb1388e66?auto=format&fit=crop&w=800&q=80",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Bandra-fort-mumbai.jpg?width=1280",
     description: "17th-century Portuguese fort offering stunning vistas of the iconic Rajiv Gandhi Sea Link.",
     mapQuery: "Bandra+Fort+Mumbai",
   },
@@ -260,7 +335,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.8,
     distance: "32.0 km",
     safetyStatus: "Safe Zone ✓",
-    image: "https://dynamic-media-cdn.tripadvisor.com/media/photo-o/15/19/88/12/global-vipassana-pagoda.jpg?w=1200&h=1200&s=1",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/GlobalVipasanaPagoda.JPG?width=1280",
     description: "Massive golden dome meditation hall and peace monument built on the Gorai peninsula.",
     mapQuery: "Global+Vipassana+Pagoda+Gorai",
   },
@@ -272,7 +347,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.7,
     distance: "11.0 km (Ferry Ride)",
     safetyStatus: "Patrolled Island ✓",
-    image: "https://s7ap1.scene7.com/is/image/incredibleindia/1-elephanta-caves-mumbai-maharashtra-attr-hero?qlt=82&ts=1742184509331",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Elephanta_Caves_Trimurti.jpg?width=1280",
     description: "Rock-cut cave temples dedicated to Lord Shiva, accessible by boat from Gateway of India.",
     mapQuery: "Elephanta+Caves+Mumbai",
   },
@@ -284,7 +359,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.7,
     distance: "7.2 km",
     safetyStatus: "Monitored Zone ✓",
-    image: "https://upload.wikimedia.org/wikipedia/commons/thumb/2/28/Mumbai_03-2016_13_Haji_Ali_Dargah.jpg/960px-Mumbai_03-2016_13_Haji_Ali_Dargah.jpg?utm_source=commons.wikimedia.org&utm_campaign=index&utm_content=thumbnail&_=20160404014614",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Mumbai_03-2016_12_Haji_Ali_Dargah.jpg?width=1280",
     description: "Historic 15th-century mosque and tomb situated on an islet connected by a narrow causeway.",
     mapQuery: "Haji+Ali+Dargah+Mumbai",
   },
@@ -296,7 +371,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.9,
     distance: "1.8 km",
     safetyStatus: "High Security Zone ✓",
-    image: "https://images.unsplash.com/photo-1566552881560-0be862a7c445?auto=format&fit=crop&w=800&q=80",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Chhatrapati_shivaji_terminus,_esterno_01.jpg?width=1280",
     description: "Victorian Gothic Revival architectural masterpiece and bustling central transport hub.",
     mapQuery: "Chhatrapati+Shivaji+Maharaj+Terminus",
   },
@@ -308,7 +383,7 @@ const NEARBY_ATTRACTIONS = [
     rating: 4.6,
     distance: "28.0 km",
     safetyStatus: "Safe Zone ✓",
-    image: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRKErGwZbJBuTxhK0rpQ2PI8n0p0JDarL-JgywvkMaSOkLZ7AvDLJwRW-SP&s=10",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Upvan_Lake_-_Night_View.JPG?width=1280",
     description: "Serene lakeside garden nestled against the lush forest hills of Sanjay Gandhi National Park in Thane.",
     mapQuery: "Upvan+Lake+Thane",
   },
@@ -334,6 +409,8 @@ const NEARBY_HOTELS = [
     priceRange: "₹22,000 / night",
     distance: "0.8 km",
     description: "World-famous heritage luxury hotel offering breathtaking views of the Gateway of India.",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Taj_Mahal_Palace_Hotel_photo.jpg?width=1280",
+    websiteUrl: "https://www.tajhotels.com/en-in/hotels/taj-mahal-palace-mumbai",
   },
   {
     id: 102,
@@ -343,6 +420,8 @@ const NEARBY_HOTELS = [
     priceRange: "₹14,000 / night",
     distance: "0.4 km",
     description: "Located right on Marine Drive offering panoramic coastal ocean views.",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Mumbai_03-2016_27_skyline_at_Marine_Drive.jpg?width=1280",
+    websiteUrl: "https://www.tridenthotels.com/hotels-in-mumbai-nariman-point",
   },
 ];
 
@@ -355,6 +434,8 @@ const MUST_TRY_FOOD = [
     rating: 4.6,
     distance: "1.4 km",
     description: "Legendary cafe operating since 1871. Featured in Shantaram; famous for its lively vintage ambience.",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/LeopoldCafe_gobeirne.jpg?width=1280",
+    websiteUrl: "https://en.wikipedia.org/wiki/Leopold_Cafe",
   },
   {
     id: 202,
@@ -364,6 +445,8 @@ const MUST_TRY_FOOD = [
     rating: 4.5,
     distance: "1.3 km",
     description: "World-renowned late-night street food destination behind the Taj Mahal Palace.",
+    image: "https://commons.wikimedia.org/wiki/Special:FilePath/Taj_Mahal_Palace_Hotel_photo.jpg?width=1280",
+    websiteUrl: "https://en.wikipedia.org/wiki/Bademiya",
   },
 ];
 
@@ -387,12 +470,19 @@ function TouristDashboardContent() {
   const [countryCode, setCountryCode] = useState("+91");
   const [authPhone, setAuthPhone] = useState("");
   const [authOtp, setAuthOtp] = useState("");
+  const [devOtp, setDevOtp] = useState<string | null>(null);
+  const [smsNotice, setSmsNotice] = useState<string | null>(null);
 
   // Profile Fields
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [dob, setDob] = useState("");
   const [gender, setGender] = useState("");
+  const [friendContacts, setFriendContacts] = useState([
+    { name: "", phone: "", relation: "Friend" },
+    { name: "", phone: "", relation: "Friend" },
+    { name: "", phone: "", relation: "Friend" },
+  ]);
 
   // OTP Timer State
   const [resendTimer, setResendTimer] = useState(60);
@@ -411,6 +501,7 @@ function TouristDashboardContent() {
     | "attractions"
     | "hotels"
     | "food"
+    | "alerts"
   >("home");
 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -433,15 +524,19 @@ function TouristDashboardContent() {
   const [authLoading, setAuthLoading] = useState(false);
 
   // ---- Live content fetched from the backend (replaces old mock arrays) ----
-  const [mumbaiStations, setMumbaiStations] = useState<StationDTO[]>([]);
-  const [emergencyServices, setEmergencyServices] = useState<EmergencyServiceCategoryDTO[]>([]);
-  const [localScams, setLocalScams] = useState<LocalScamDTO[]>([]);
-  const [localPhrases, setLocalPhrases] = useState<PhraseCategoryDTO[]>([]);
-  const [smartItineraries, setSmartItineraries] = useState<SmartItineraryDTO[]>([]);
-  const [nearbyAttractions, setNearbyAttractions] = useState<AttractionDTO[]>([]);
-  const [nearbyHotels, setNearbyHotels] = useState<HotelDTO[]>([]);
-  const [mustTryFood, setMustTryFood] = useState<FoodSpotDTO[]>([]);
+  const [mumbaiStations, setMumbaiStations] = useState<StationDTO[]>(MUMBAI_STATIONS);
+  const [emergencyServices, setEmergencyServices] = useState<EmergencyServiceCategoryDTO[]>(EMERGENCY_SERVICES);
+  const [localScams, setLocalScams] = useState<LocalScamDTO[]>(LOCAL_SCAMS);
+  const [localPhrases, setLocalPhrases] = useState<PhraseCategoryDTO[]>(LOCAL_PHRASES);
+  const [smartItineraries, setSmartItineraries] = useState<SmartItineraryDTO[]>(SMART_ITINERARIES);
+  const [nearbyAttractions, setNearbyAttractions] = useState<AttractionDTO[]>(NEARBY_ATTRACTIONS);
+  const [nearbyHotels, setNearbyHotels] = useState<HotelDTO[]>(NEARBY_HOTELS);
+  const [mustTryFood, setMustTryFood] = useState<FoodSpotDTO[]>(MUST_TRY_FOOD);
+  const [cityNews, setCityNews] = useState<NewsItemDTO[]>([]);
+  const [crimeReports, setCrimeReports] = useState<CrimeReportDTO[]>([]);
+  const [dangerZones, setDangerZones] = useState<DangerZoneDTO[]>([]);
   const [contentLoaded, setContentLoaded] = useState(false);
+  const [fareQuote, setFareQuote] = useState<FareEstimateDTO | null>(null);
 
   // Restore session + fetch all guest-accessible content on first mount
   useEffect(() => {
@@ -469,26 +564,36 @@ function TouristDashboardContent() {
       contentApi.attractions(),
       contentApi.hotels(),
       contentApi.food(),
-    ]).then(([stations, services, scams, phrases, itins, attractions, hotels, food]) => {
-      setMumbaiStations(stations);
-      setEmergencyServices(services);
-      setLocalScams(scams);
-      setLocalPhrases(phrases);
-      setSmartItineraries(itins);
-      setNearbyAttractions(attractions);
-      setNearbyHotels(hotels);
-      setMustTryFood(food);
+      contentApi.news(),
+      contentApi.crimeReports(),
+      contentApi.dangerZones(),
+    ]).then(([stations, services, scams, phrases, itins, attractions, hotels, food, news, crime, zones]) => {
+      if (stations.length) setMumbaiStations(stations);
+      if (services.length) setEmergencyServices(services);
+      if (scams.length) setLocalScams(scams);
+      if (phrases.length) setLocalPhrases(phrases);
+      if (itins.length) setSmartItineraries(itins);
+      if (attractions.length) setNearbyAttractions(attractions);
+      if (hotels.length) setNearbyHotels(hotels);
+      if (food.length) setMustTryFood(food);
+      if (news.length) setCityNews(news);
+      if (crime.length) setCrimeReports(crime);
+      if (zones.length) setDangerZones(zones);
       setContentLoaded(true);
     }).catch((err) => {
       console.error("Failed to load content from backend:", err);
-      setContentLoaded(true); // don't block the UI forever if the API is unreachable
+      setContentLoaded(true); // keep local catalogs if the API is unreachable
     });
   }, []);
 
   // Re-fetch attractions when the region filter changes (backend does the filtering)
   useEffect(() => {
     if (!contentLoaded) return;
-    contentApi.attractions(selectedRegionFilter).then(setNearbyAttractions).catch(console.error);
+    contentApi.attractions(selectedRegionFilter).then((data) => {
+      if (data.length) setNearbyAttractions(data);
+      else if (selectedRegionFilter === "All") setNearbyAttractions(NEARBY_ATTRACTIONS);
+      else setNearbyAttractions([]);
+    }).catch(console.error);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedRegionFilter]);
 
@@ -496,7 +601,11 @@ function TouristDashboardContent() {
   const touristUser = {
     fullName: backendProfile?.full_name || "Guest Traveler",
     email: backendProfile?.email || "Not provided",
-    phone: backendProfile ? `${countryCode} ${backendProfile.phone_number}` : "Unverified (Guest Mode)",
+    phone: backendProfile
+      ? (backendProfile.phone_number.startsWith("+")
+          ? backendProfile.phone_number
+          : `${countryCode} ${backendProfile.phone_number}`)
+      : "Unverified (Guest Mode)",
     dob: backendProfile?.date_of_birth || "Not specified",
     gender: backendProfile?.gender || "Not specified",
     emergencyContact: backendProfile?.emergency_contact_name
@@ -512,7 +621,46 @@ function TouristDashboardContent() {
   // Safety & SOS State
   const [isDanger, setIsDanger] = useState(false);
   const [sosSent, setSosSent] = useState(false);
-  const [currentZoneName, setCurrentZoneName] = useState("Locating..."); 
+  const [currentZoneName, setCurrentZoneName] = useState("Locating...");
+  const [pinCoords, setPinCoords] = useState({ lat: 19.21407, lng: 72.8648 });
+  const [requestedPin, setRequestedPin] = useState<{ lat: number; lng: number; place: string } | null>(null);
+  const [pickingArea, setPickingArea] = useState(false);
+  const [pickedArea, setPickedArea] = useState<{ name: string; lat: number; lng: number; token: number } | null>(null);
+  const [inAppRoute, setInAppRoute] = useState<{
+    fromLat: number;
+    fromLng: number;
+    toLat: number;
+    toLng: number;
+    toName: string;
+  } | null>(null);
+  const [userGps, setUserGps] = useState<{ lat: number; lng: number } | null>(null);
+  const mapSectionRef = useRef<HTMLDivElement>(null);
+
+  const startRouteTo = async (dest: { lat: number; lng: number; name: string }) => {
+    setActiveSection("home");
+    const pin = pinCoords;
+    let from = pin;
+    const gps = userGps ?? (await readCurrentGps());
+    if (gps) {
+      setUserGps(gps);
+      // Only start the route from GPS when it is actually near the dropped pin
+      // or the destination — otherwise ISP/wrong GPS draws a Vasai–Virar line.
+      if (kmBetween(gps, pin) <= 4 || kmBetween(gps, dest) <= 4) {
+        from = gps;
+      }
+    }
+    setInAppRoute({
+      fromLat: from.lat,
+      fromLng: from.lng,
+      toLat: dest.lat,
+      toLng: dest.lng,
+      toName: dest.name,
+    });
+    setTimeout(() => {
+      mapSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 80);
+  };
+
   // Fare Estimator State
   const [cabDistance, setCabDistance] = useState(5);
 
@@ -525,6 +673,19 @@ function TouristDashboardContent() {
     estimatedMins: number;
     fare: number;
   } | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fareApi
+        .estimate(origin, destination, cabDistance)
+        .then(setFareQuote)
+        .catch((err) => {
+          console.error("Fare estimate failed:", err);
+          setFareQuote(null);
+        });
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [cabDistance, origin, destination]);
 
   // 1. DEDICATED AUTH ROUTE INTERCEPTOR
   useEffect(() => {
@@ -560,6 +721,33 @@ function TouristDashboardContent() {
     setIsTimerActive(true);
   };
 
+  const sendOtpToPhone = () => {
+    const cleanedPhone = authPhone.replace(/\s+/g, "");
+    if (!/^\d{10}$/.test(cleanedPhone)) {
+      setAuthError("Enter a valid 10-digit Indian mobile number.");
+      return;
+    }
+    setAuthError(null);
+    setAuthLoading(true);
+    authApi
+      .requestOtp(`${countryCode}${cleanedPhone}`)
+      .then((res) => {
+        const code = (res?.dev_otp || "").trim();
+        setAuthStep("otp");
+        startResendTimer();
+        if (code) {
+          setDevOtp(code);
+          setAuthOtp(code);
+          setSmsNotice(res.message || "SMS did not send. Use the on-screen OTP.");
+        } else {
+          setDevOtp(null);
+          setSmsNotice("No SMS was delivered. Check the backend terminal for [OTP] and type that code.");
+        }
+      })
+      .catch((err) => setAuthError(err.message || "Couldn't send OTP. Please try again."))
+      .finally(() => setAuthLoading(false));
+  };
+
   const speakPhrase = (text: string) => {
     if ("speechSynthesis" in window) {
       const utterance = new SpeechSynthesisUtterance(text);
@@ -590,7 +778,11 @@ function TouristDashboardContent() {
         (pos) => {
           emergencyApi
             .triggerSOS(
-              { latitude: pos.coords.latitude, longitude: pos.coords.longitude },
+              {
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+                location_label: currentZoneName !== "Locating..." ? currentZoneName : undefined,
+              },
               authToken
             )
             .catch((err) => console.error("SOS alert dispatch failed:", err));
@@ -603,6 +795,92 @@ function TouristDashboardContent() {
   };
 
   const handleCalculateRoute = () => {
+    if (origin === destination) {
+      setSearchedRoute({
+        line: "Already at destination",
+        interchange: null,
+        estimatedMins: 0,
+        fare: 0,
+      });
+      return;
+    }
+
+    const applyLocalRoute = () => {
+      if (!MUMBAI_GRAPH[origin] || !MUMBAI_GRAPH[destination]) {
+        setSearchedRoute({
+          line: "Route data pending for these stations",
+          interchange: null,
+          estimatedMins: 0,
+          fare: 0,
+        });
+        return;
+      }
+
+      const distances: Record<string, number> = {};
+      const previous: Record<string, { node: string; edge: RouteEdge } | null> = {};
+      const unvisited = new Set(Object.keys(MUMBAI_GRAPH));
+
+      Object.keys(MUMBAI_GRAPH).forEach((station) => {
+        distances[station] = Infinity;
+        previous[station] = null;
+      });
+      distances[origin] = 0;
+
+      while (unvisited.size > 0) {
+        let current = Array.from(unvisited).reduce((minNode, node) =>
+          distances[node] < distances[minNode] ? node : minNode
+        );
+
+        if (distances[current] === Infinity) break;
+        if (current === destination) break;
+
+        unvisited.delete(current);
+
+        MUMBAI_GRAPH[current].forEach((edge) => {
+          if (unvisited.has(edge.node)) {
+            const newTime = distances[current] + edge.time;
+            if (newTime < distances[edge.node]) {
+              distances[edge.node] = newTime;
+              previous[edge.node] = { node: current, edge: edge };
+            }
+          }
+        });
+      }
+
+      const path: string[] = [];
+      let currentTrace = destination;
+      let totalDistKm = 0;
+      let linesUsed = new Set<string>();
+      let interchanges: string[] = [];
+
+      while (currentTrace && previous[currentTrace]) {
+        const prevData = previous[currentTrace]!;
+        path.unshift(currentTrace);
+        totalDistKm += prevData.edge.dist;
+        linesUsed.add(prevData.edge.line);
+
+        if (previous[prevData.node] && previous[prevData.node]!.edge.line !== prevData.edge.line) {
+          interchanges.push(prevData.node);
+        }
+
+        currentTrace = prevData.node;
+      }
+      path.unshift(origin);
+
+      const exactFare = calculateOfficialFare(totalDistKm);
+      const lineString = Array.from(linesUsed).join(" ➔ ");
+      const interchangeString = interchanges.length > 0
+        ? `Change trains at ${interchanges.reverse().join(", ")}`
+        : null;
+
+      setSearchedRoute({
+        line: lineString,
+        interchange: interchangeString,
+        estimatedMins: distances[destination],
+        fare: exactFare,
+      });
+    };
+
     trainApi
       .getRoute(origin, destination)
       .then((route) => {
@@ -615,92 +893,8 @@ function TouristDashboardContent() {
       })
       .catch((err) => {
         console.error("Route lookup failed:", err);
-        setSearchedRoute(null);
+        applyLocalRoute();
       });
-    if (origin === destination) {
-      setSearchedRoute({
-        line: "Already at destination",
-        interchange: null,
-        estimatedMins: 0,
-        fare: 0,
-      });
-      return;
-    }
-
-    if (!MUMBAI_GRAPH[origin] || !MUMBAI_GRAPH[destination]) {
-      setSearchedRoute({
-        line: "Route data pending for these stations",
-        interchange: null,
-        estimatedMins: 0,
-        fare: 0,
-      });
-      return;
-    }
-
-    // Dijkstra's Algorithm setup
-    const distances: Record<string, number> = {};
-    const previous: Record<string, { node: string; edge: RouteEdge } | null> = {};
-    const unvisited = new Set(Object.keys(MUMBAI_GRAPH));
-
-    Object.keys(MUMBAI_GRAPH).forEach((station) => {
-      distances[station] = Infinity;
-      previous[station] = null;
-    });
-    distances[origin] = 0;
-
-    while (unvisited.size > 0) {
-      let current = Array.from(unvisited).reduce((minNode, node) => 
-        distances[node] < distances[minNode] ? node : minNode
-      );
-
-      if (distances[current] === Infinity) break; 
-      if (current === destination) break; 
-
-      unvisited.delete(current);
-
-      MUMBAI_GRAPH[current].forEach((edge) => {
-        if (unvisited.has(edge.node)) {
-          const newTime = distances[current] + edge.time;
-          if (newTime < distances[edge.node]) {
-            distances[edge.node] = newTime;
-            previous[edge.node] = { node: current, edge: edge };
-          }
-        }
-      });
-    }
-
-    const path: string[] = [];
-    let currentTrace = destination;
-    let totalDistKm = 0;
-    let linesUsed = new Set<string>();
-    let interchanges: string[] = [];
-
-    while (currentTrace && previous[currentTrace]) {
-      const prevData = previous[currentTrace]!;
-      path.unshift(currentTrace);
-      totalDistKm += prevData.edge.dist;
-      linesUsed.add(prevData.edge.line);
-      
-      if (previous[prevData.node] && previous[prevData.node]!.edge.line !== prevData.edge.line) {
-         interchanges.push(prevData.node);
-      }
-      
-      currentTrace = prevData.node;
-    }
-    path.unshift(origin); 
-
-    const exactFare = calculateOfficialFare(totalDistKm);
-    const lineString = Array.from(linesUsed).join(" ➔ ");
-    const interchangeString = interchanges.length > 0 
-      ? `Change trains at ${interchanges.reverse().join(", ")}` 
-      : null;
-
-    setSearchedRoute({
-      line: lineString,
-      interchange: interchangeString,
-      estimatedMins: distances[destination],
-      fare: exactFare,
-    });
   };
 
   const navigateTo = (section: typeof activeSection) => {
@@ -711,49 +905,93 @@ function TouristDashboardContent() {
   // Registration Auth Steps — now backed by real OTP requests/verification
   const handlePhoneSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setAuthError(null);
-    const cleanedPhone = authPhone.replace(/\s+/g, "");
-    if (!/^\d{7,12}$/.test(cleanedPhone)) return;
-
-    setAuthLoading(true);
-    authApi
-      .requestOtp(`${countryCode}${cleanedPhone}`)
-      .then(() => {
-        setAuthStep("otp");
-        startResendTimer();
-      })
-      .catch((err) => setAuthError(err.message || "Couldn't send OTP. Please try again."))
-      .finally(() => setAuthLoading(false));
+    sendOtpToPhone();
   };
 
   const handleOtpSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
-    if (authOtp.length < 4) return;
+    if (authOtp.length < 6) return;
 
     setAuthLoading(true);
     const cleanedPhone = authPhone.replace(/\s+/g, "");
     authApi
       .verifyOtp(`${countryCode}${cleanedPhone}`, authOtp)
-      .then(({ access_token }) => {
-        setToken(access_token);
-        setAuthToken(access_token);
-        return authApi.getMe(access_token);
-      })
-      .then((me) => {
-        setBackendProfile(me);
-        setFullName(me.full_name || "");
-        setEmail(me.email || "");
-        setAuthStep("profile");
-      })
+      .then(({ access_token, is_new_user }) => finishAuthSession(access_token, is_new_user))
       .catch((err) => setAuthError(err.message || "Invalid or expired OTP."))
       .finally(() => setAuthLoading(false));
+  };
+
+  const finishAuthSession = (accessToken: string, isNewUser: boolean) => {
+    setToken(accessToken);
+    setAuthToken(accessToken);
+    return authApi.getMe(accessToken).then((me) => {
+      setBackendProfile(me);
+      setFullName(me.full_name || "");
+      setEmail(me.email || "");
+      if (!isNewUser && me.full_name) {
+        return passApi
+          .getMine(accessToken)
+          .catch(() => passApi.issue(accessToken, 14))
+          .then((pass) => {
+            setBackendPass(pass);
+            setHasPassPreview(true);
+            setShowAuthModal(false);
+            setAuthStep("phone");
+            setShowRegistrationIntro(true);
+          });
+      }
+      setAuthStep("profile");
+    });
+  };
+
+  const handleGoogleAuth = async () => {
+    setAuthError(null);
+    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
+    if (!clientId) {
+      setAuthError("Paste your Google Client ID into frontend/.env.local as NEXT_PUBLIC_GOOGLE_CLIENT_ID, then restart npm run dev.");
+      return;
+    }
+    setAuthLoading(true);
+    try {
+      await loadGoogleIdentity();
+      const client = window.google?.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: "openid email profile",
+        callback: (response) => {
+          if (response.error || !response.access_token) {
+            setAuthLoading(false);
+            setAuthError(response.error === "popup_closed_by_user" ? "Google sign-in was cancelled." : "Google sign-in failed.");
+            return;
+          }
+          authApi
+            .googleLogin({ access_token: response.access_token })
+            .then(({ access_token, is_new_user }) => finishAuthSession(access_token, is_new_user))
+            .catch((err) => setAuthError(err.message || "Google login failed."))
+            .finally(() => setAuthLoading(false));
+        },
+      });
+      if (!client) {
+        throw new Error("Google Sign-In did not initialize.");
+      }
+      client.requestAccessToken();
+    } catch (err) {
+      setAuthLoading(false);
+      setAuthError(err instanceof Error ? err.message : "Could not start Google sign-in.");
+    }
   };
 
   const handleProfileSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
     if (!fullName || !email || !authToken) return;
+    const filledFriends = friendContacts.filter(
+      (c) => c.name.trim() && c.phone.replace(/\s+/g, "").length >= 10
+    );
+    if (filledFriends.length < 2) {
+      setAuthError("Add at least 2 friend contact numbers for emergencies.");
+      return;
+    }
 
     setAuthLoading(true);
     authApi
@@ -762,6 +1000,11 @@ function TouristDashboardContent() {
         email,
         date_of_birth: dob || undefined,
         gender: gender || undefined,
+        friend_contacts: filledFriends.map((c) => ({
+          name: c.name.trim(),
+          phone_number: c.phone.replace(/\s+/g, ""),
+          relation: c.relation || "Friend",
+        })),
       })
       .then((me) => {
         setBackendProfile(me);
@@ -779,11 +1022,11 @@ function TouristDashboardContent() {
   };
 
   const handleSocialAuth = (provider: string) => {
-    // Social login isn't backed by the API yet — kept as a UI-only placeholder
-    // so the button remains functional while only phone OTP is wired to the backend.
-    setFullName(`${provider} Traveler`);
-    setEmail(`user@${provider.toLowerCase()}.com`);
-    setAuthStep("profile");
+    if (provider === "Google") {
+      void handleGoogleAuth();
+      return;
+    }
+    setAuthError("Apple Sign-In is not set up yet. Use Google or mobile OTP.");
   };
 
   // Filtered attractions
@@ -871,7 +1114,7 @@ function TouristDashboardContent() {
 
   // ================= 3. MAIN DASHBOARD WITH AUTH MODAL & INTRO OVERLAY =================
   return (
-    <main className="min-h-screen bg-[#f8fafc] text-slate-800 pb-28 max-w-md mx-auto relative border-x border-slate-200/90 shadow-xl font-sans selection:bg-emerald-200 selection:text-emerald-950 overflow-x-hidden">
+    <main className="min-h-screen bg-[#f8fafc] text-slate-800 pb-[calc(8rem+env(safe-area-inset-bottom))] max-w-md mx-auto relative border-x border-slate-200/90 shadow-xl font-sans selection:bg-emerald-200 selection:text-emerald-950 overflow-x-hidden">
       
       {/* POST-REGISTRATION & GUEST INTRO SCREEN OVERLAY */}
       {showRegistrationIntro && (
@@ -993,10 +1236,18 @@ function TouristDashboardContent() {
                 {authStep === "profile" && "Complete Tourist Profile"}
               </h2>
               <p className="text-xs text-slate-500">
-                {authStep === "phone" && "Verify mobile or sign in with social accounts to issue your pass."}
-                {authStep === "otp" && `We sent a 4-digit OTP code to ${countryCode} ${authPhone}.`}
-                {authStep === "profile" && "Provide mandatory details to personalize your tourist safety pass."}
+                {authStep === "phone" && "Login or sign up with your Indian mobile number. We’ll send a 6-digit OTP."}
+                {authStep === "otp" &&
+                  (smsNotice
+                    ? `Fast2SMS did not deliver SMS to ${countryCode} ${authPhone}. Use the code below.`
+                    : `We sent a 6-digit OTP code to ${countryCode} ${authPhone}.`)}
+                {authStep === "profile" && "Add your details and 2–3 friend numbers used if you tap SOS."}
               </p>
+              {authError && (
+                <p className="text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+                  {authError}
+                </p>
+              )}
             </div>
 
             {/* STEP 1: PHONE & SOCIAL AUTH */}
@@ -1013,10 +1264,6 @@ function TouristDashboardContent() {
                       className="bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 px-2 py-3 focus:outline-none focus:border-emerald-500 shrink-0"
                     >
                       <option value="+91">+91 (IN)</option>
-                      <option value="+1">+1 (US/CA)</option>
-                      <option value="+44">+44 (UK)</option>
-                      <option value="+61">+61 (AU)</option>
-                      <option value="+971">+971 (AE)</option>
                     </select>
 
                     <div className="relative flex-1">
@@ -1035,9 +1282,10 @@ function TouristDashboardContent() {
 
                 <button
                   type="submit"
-                  className="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold py-3.5 rounded-xl text-xs transition-all shadow-md shadow-emerald-200 flex items-center justify-center gap-1.5"
+                  disabled={authLoading}
+                  className="w-full bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-400 text-white font-extrabold py-3.5 rounded-xl text-xs transition-all shadow-md shadow-emerald-200 flex items-center justify-center gap-1.5"
                 >
-                  Send OTP Code <ArrowRight className="w-4 h-4" />
+                  {authLoading ? "Sending OTP…" : "Send OTP Code"} <ArrowRight className="w-4 h-4" />
                 </button>
 
                 <div className="relative flex py-1 items-center">
@@ -1051,8 +1299,9 @@ function TouristDashboardContent() {
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
+                    disabled={authLoading}
                     onClick={() => handleSocialAuth("Google")}
-                    className="flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl py-2.5 text-xs font-bold text-slate-700 transition-all"
+                    className="flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl py-2.5 text-xs font-bold text-slate-700 transition-all disabled:opacity-60"
                   >
                     <svg className="w-4 h-4" viewBox="0 0 24 24">
                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -1080,9 +1329,20 @@ function TouristDashboardContent() {
             {/* STEP 1b: OTP ENTRY & COUNTDOWN TIMER */}
             {authStep === "otp" && (
               <form onSubmit={handleOtpSubmit} className="space-y-4">
+                {devOtp && (
+                  <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-3 text-center">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
+                      SMS did not send — use this OTP
+                    </p>
+                    <p className="mt-1 font-mono text-2xl font-black tracking-[0.4em] text-slate-900">{devOtp}</p>
+                    <p className="mt-1 text-[10px] text-amber-800">
+                      Fast2SMS is blocking delivery until the wallet has a ₹100 top-up and OTP website verification.
+                    </p>
+                  </div>
+                )}
                 <div>
                   <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
-                    4-Digit Verification Code
+                    6-Digit Verification Code
                   </label>
                   <div className="relative">
                     <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
@@ -1109,8 +1369,8 @@ function TouristDashboardContent() {
 
                   <button
                     type="button"
-                    disabled={isTimerActive}
-                    onClick={startResendTimer}
+                    disabled={isTimerActive || authLoading}
+                    onClick={sendOtpToPhone}
                     className={`font-bold text-[11px] ${
                       isTimerActive ? "text-slate-400 cursor-not-allowed" : "text-emerald-700 hover:underline"
                     }`}
@@ -1121,9 +1381,10 @@ function TouristDashboardContent() {
 
                 <button
                   type="submit"
-                  className="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold py-3.5 rounded-xl text-xs transition-all shadow-md shadow-emerald-200"
+                  disabled={authLoading}
+                  className="w-full bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-400 text-white font-extrabold py-3.5 rounded-xl text-xs transition-all shadow-md shadow-emerald-200"
                 >
-                  Verify OTP & Proceed
+                  {authLoading ? "Verifying…" : "Verify OTP & Proceed"}
                 </button>
               </form>
             )}
@@ -1218,11 +1479,49 @@ function TouristDashboardContent() {
                   </div>
                 </div>
 
+                <div className="space-y-2 pt-1">
+                  <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wider">
+                    Friend contacts for SOS <span className="text-rose-500">*</span>
+                  </p>
+                  <p className="text-[11px] text-slate-500 font-semibold">
+                    Add 2 required numbers and 1 optional. These friends are notified if you hold SOS.
+                  </p>
+                  {friendContacts.map((friend, idx) => (
+                    <div key={idx} className="grid grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        placeholder={idx < 2 ? `Friend ${idx + 1} name *` : "Friend 3 name (optional)"}
+                        value={friend.name}
+                        onChange={(e) => {
+                          const next = [...friendContacts];
+                          next[idx] = { ...next[idx], name: e.target.value };
+                          setFriendContacts(next);
+                        }}
+                        required={idx < 2}
+                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500"
+                      />
+                      <input
+                        type="tel"
+                        placeholder={idx < 2 ? "10-digit number *" : "10-digit number"}
+                        value={friend.phone}
+                        onChange={(e) => {
+                          const next = [...friendContacts];
+                          next[idx] = { ...next[idx], phone: e.target.value };
+                          setFriendContacts(next);
+                        }}
+                        required={idx < 2}
+                        className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                  ))}
+                </div>
+
                 <button
                   type="submit"
-                  className="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold py-3 rounded-xl text-xs transition-all shadow-md shadow-emerald-200 mt-2"
+                  disabled={authLoading}
+                  className="w-full bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-400 text-white font-extrabold py-3 rounded-xl text-xs transition-all shadow-md shadow-emerald-200 mt-2"
                 >
-                  Generate Tourist Pass
+                  {authLoading ? "Saving…" : "Generate Tourist Pass"}
                 </button>
               </form>
             )}
@@ -1346,6 +1645,15 @@ function TouristDashboardContent() {
                       }`}
                     >
                       <ShieldAlert className="w-4 h-4 text-amber-600" /> Scam & Trap Radar
+                    </button>
+
+                    <button
+                      onClick={() => navigateTo("alerts")}
+                      className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl font-semibold text-xs transition-all ${
+                        activeSection === "alerts" ? "bg-rose-50 text-rose-900 border border-rose-200" : "text-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      <Newspaper className="w-4 h-4 text-rose-600" /> News, Crime & Zones
                     </button>
                   </div>
                 </div>
@@ -1514,52 +1822,92 @@ function TouristDashboardContent() {
                 {isDanger ? "Switch to Safe Zone" : "Simulate Red Zone"}
               </button>
             </div>
-            <LiveSafetyMap 
-              isDanger={isDanger} 
-              onLocationUpdate={(name) => setCurrentZoneName(name)} 
+            <div ref={mapSectionRef} className="scroll-mt-24">
+            <LiveSafetyMap
+              isDanger={isDanger}
+              onLocationUpdate={(name) => setCurrentZoneName(name)}
+              onCoordsChange={(lat, lng) => setPinCoords({ lat, lng })}
+              requestedPin={requestedPin}
+              pickingArea={pickingArea}
+              route={inAppRoute}
+              onClearRoute={() => setInAppRoute(null)}
+              onUserGps={(lat, lng) => setUserGps({ lat, lng })}
+              onPickForAnalysis={(lat, lng) => {
+                setPinCoords({ lat, lng });
+                setPickingArea(false);
+                setPickedArea({
+                  name: currentZoneName || "Dropped pin",
+                  lat,
+                  lng,
+                  token: Date.now(),
+                });
+              }}
             />
-
-            <div className="bg-white p-5 rounded-3xl border border-slate-200 flex flex-col items-center text-center shadow-sm">
-              {sosSent ? (
-                <div className="p-4 bg-rose-50 border border-rose-300 rounded-2xl text-rose-900 w-full animate-pulse space-y-2">
-                  <p className="font-extrabold text-sm uppercase tracking-wider">Emergency call dialer opened</p>
-                  <p className="text-xs text-rose-800">This prototype cannot contact police, share your location, or confirm that help was dispatched. Call 112 to request help.</p>
-                  <button onClick={() => setSosSent(false)} className="mt-2 text-xs underline text-slate-500 block mx-auto">
-                    Dismiss Emergency Alert
-                  </button>
-                </div>
-              ) : (
-                <SOSButton onTriggerSOS={handleSOS} />
-              )}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <a
-                href="tel:112"
-                className="bg-rose-50/80 border border-rose-200 hover:border-rose-300 p-3.5 rounded-2xl flex items-center gap-3 text-rose-900 transition-all hover:bg-rose-100/80 shadow-xs"
-              >
-                <div className="p-2 bg-rose-600 text-white rounded-xl shadow-sm">
-                  <PhoneCall className="w-4 h-4" />
-                </div>
-                <div className="text-left">
-                  <span className="text-[10px] text-rose-700 font-bold uppercase tracking-wider block">Police SOS</span>
-                  <span className="font-extrabold text-sm text-slate-900">Dial 112</span>
-                </div>
-              </a>
+            <AreaAnalysis
+              picking={pickingArea}
+              pickedArea={pickedArea}
+              onStartPick={() => {
+                setPickingArea(true);
+                mapSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+              }}
+              onCancelPick={() => setPickingArea(false)}
+              onSelectArea={(area) => {
+                setPinCoords({ lat: area.lat, lng: area.lng });
+                setCurrentZoneName(area.name);
+                setRequestedPin({ lat: area.lat, lng: area.lng, place: area.name });
+              }}
+              onNavigate={(place: AnalyzedPlaceDTO) => {
+                if (place.latitude == null || place.longitude == null) return;
+                void startRouteTo({ lat: place.latitude, lng: place.longitude, name: place.name });
+              }}
+              afterButton={
+                <>
+                  <div className="bg-white p-5 rounded-3xl border border-slate-200 flex flex-col items-center text-center shadow-sm">
+                    {sosSent ? (
+                      <div className="p-4 bg-rose-50 border border-rose-300 rounded-2xl text-rose-900 w-full animate-pulse space-y-2">
+                        <p className="font-extrabold text-sm uppercase tracking-wider">Emergency call dialer opened</p>
+                        <p className="text-xs text-rose-800">This prototype cannot contact police, share your location, or confirm that help was dispatched. Call 112 to request help.</p>
+                        <button onClick={() => setSosSent(false)} className="mt-2 text-xs underline text-slate-500 block mx-auto">
+                          Dismiss Emergency Alert
+                        </button>
+                      </div>
+                    ) : (
+                      <SOSButton onTriggerSOS={handleSOS} />
+                    )}
+                  </div>
 
-              <a
-                href="tel:1363"
-                className="bg-sky-50/80 border border-sky-200 hover:border-sky-300 p-3.5 rounded-2xl flex items-center gap-3 text-sky-900 transition-all hover:bg-sky-100/80 shadow-xs"
-              >
-                <div className="p-2 bg-sky-600 text-white rounded-xl shadow-sm">
-                  <PhoneCall className="w-4 h-4" />
-                </div>
-                <div className="text-left">
-                  <span className="text-[10px] text-sky-700 font-bold uppercase tracking-wider block">Tourist Helpline</span>
-                  <span className="font-extrabold text-sm text-slate-900">Dial 1363</span>
-                </div>
-              </a>
-            </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <a
+                      href="tel:112"
+                      className="bg-rose-50/80 border border-rose-200 hover:border-rose-300 p-3.5 rounded-2xl flex items-center gap-3 text-rose-900 transition-all hover:bg-rose-100/80 shadow-xs"
+                    >
+                      <div className="p-2 bg-rose-600 text-white rounded-xl shadow-sm">
+                        <PhoneCall className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <span className="text-[10px] text-rose-700 font-bold uppercase tracking-wider block">Police SOS</span>
+                        <span className="font-extrabold text-sm text-slate-900">Dial 112</span>
+                      </div>
+                    </a>
+
+                    <a
+                      href="tel:1363"
+                      className="bg-sky-50/80 border border-sky-200 hover:border-sky-300 p-3.5 rounded-2xl flex items-center gap-3 text-sky-900 transition-all hover:bg-sky-100/80 shadow-xs"
+                    >
+                      <div className="p-2 bg-sky-600 text-white rounded-xl shadow-sm">
+                        <PhoneCall className="w-4 h-4" />
+                      </div>
+                      <div className="text-left">
+                        <span className="text-[10px] text-sky-700 font-bold uppercase tracking-wider block">Tourist Helpline</span>
+                        <span className="font-extrabold text-sm text-slate-900">Dial 1363</span>
+                      </div>
+                    </a>
+                  </div>
+                </>
+              }
+            />
           </div>
         )}
 
@@ -1596,12 +1944,15 @@ function TouristDashboardContent() {
                             <p className="font-bold text-slate-900">{item.name}</p>
                             <p className="text-[10px] text-slate-500">{item.location} • {item.distance}</p>
                           </div>
-                          <a
-                            href={`tel:${item.phone}`}
-                            className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all text-xs shadow-xs"
-                          >
-                            <PhoneCall className="w-3.5 h-3.5" /> Call
-                          </a>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {item.websiteUrl && <WebsiteLink href={item.websiteUrl} label="Site" />}
+                            <a
+                              href={`tel:${item.phone}`}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all text-xs shadow-xs"
+                            >
+                              <PhoneCall className="w-3.5 h-3.5" /> Call
+                            </a>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -1627,7 +1978,18 @@ function TouristDashboardContent() {
 
             <div className="space-y-3">
               {localScams.map((scam) => (
-                <div key={scam.id} className="bg-white border border-amber-200 p-4 rounded-3xl space-y-2.5 shadow-sm">
+                <div key={scam.id} className="bg-white border border-amber-200 rounded-3xl overflow-hidden shadow-sm">
+                  {scam.image && (
+                    <img
+                      src={scam.image}
+                      alt=""
+                      className="w-full h-32 object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                  )}
+                  <div className="p-4 space-y-2.5">
                   <div className="flex justify-between items-start">
                     <h3 className="font-bold text-sm text-amber-900">{scam.title}</h3>
                     <span className="text-[9px] font-extrabold bg-amber-100 border border-amber-300 text-amber-900 px-2.5 py-0.5 rounded-full uppercase tracking-wider">
@@ -1646,6 +2008,83 @@ function TouristDashboardContent() {
                   <div className="bg-emerald-50 border border-emerald-200 p-3 rounded-2xl text-xs text-emerald-900">
                     <strong className="block text-[10px] text-emerald-800 uppercase tracking-wider mb-1">🛡️ How to Avoid:</strong>
                     {scam.prevention}
+                  </div>
+                  <WebsiteLink href={scam.websiteUrl} label="Source" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ================= NEWS / CRIME / DANGER ZONES ================= */}
+        {activeSection === "alerts" && (
+          <div className="space-y-5">
+            <div className="flex items-center gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
+              <div className="p-2 bg-rose-100 text-rose-700 rounded-xl">
+                <Newspaper className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-bold text-sm text-slate-900">City News, Crime & Danger Zones</h2>
+                <p className="text-[11px] text-slate-500">Photos and source pages stored as internet links</p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Headlines</h3>
+              {cityNews.length === 0 && <p className="text-xs text-slate-500">No news loaded yet. Restart the API and re-seed if empty.</p>}
+              {cityNews.map((item) => (
+                <div key={item.id} className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
+                  {item.image && (
+                    <img src={item.image} alt="" className="w-full h-36 object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  )}
+                  <div className="p-4 space-y-2">
+                    <span className="text-[10px] font-bold text-rose-700 uppercase">{item.category}</span>
+                    <h3 className="font-bold text-sm text-slate-900">{item.title}</h3>
+                    <p className="text-xs text-slate-600">{item.summary}</p>
+                    <WebsiteLink href={item.websiteUrl} label="Read article" />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Verified crime reports</h3>
+              {crimeReports.map((item) => (
+                <div key={item.id} className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
+                  {item.image && (
+                    <img src={item.image} alt="" className="w-full h-32 object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  )}
+                  <div className="p-4 space-y-2">
+                    <div className="flex justify-between gap-2">
+                      <h3 className="font-bold text-sm text-slate-900">{item.crimeType}</h3>
+                      <span className="text-[10px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full">{item.status}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">{item.locationLabel}</p>
+                    <p className="text-xs text-slate-600">{item.description}</p>
+                    <WebsiteLink href={item.websiteUrl} label="Source" />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-3">
+              <h3 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Danger zones</h3>
+              {dangerZones.map((zone) => (
+                <div key={zone.id} className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
+                  {zone.image && (
+                    <img src={zone.image} alt="" className="w-full h-32 object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  )}
+                  <div className="p-4 space-y-2">
+                    <div className="flex justify-between gap-2">
+                      <h3 className="font-bold text-sm text-slate-900">{zone.name}</h3>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        zone.riskLevel === "red" ? "bg-rose-100 text-rose-800" :
+                        zone.riskLevel === "yellow" ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-800"
+                      }`}>{zone.riskLevel}</span>
+                    </div>
+                    <p className="text-xs text-slate-600">{zone.description}</p>
+                    <WebsiteLink href={zone.websiteUrl} label="More info" />
                   </div>
                 </div>
               ))}
@@ -1711,7 +2150,11 @@ function TouristDashboardContent() {
 
             <div className="space-y-4">
               {smartItineraries.map((item) => (
-                <div key={item.id} className="bg-white border border-slate-200 p-4 rounded-3xl space-y-3 shadow-sm">
+                <div key={item.id} className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
+                  {item.image && (
+                    <img src={item.image} alt="" className="w-full h-32 object-cover" onError={(e) => { e.currentTarget.style.display = "none"; }} />
+                  )}
+                  <div className="p-4 space-y-3">
                   <div className="border-b border-slate-100 pb-2">
                     <h3 className="font-bold text-sm text-indigo-900">{item.title}</h3>
                     <p className="text-xs text-slate-500 mt-0.5">{item.subtitle}</p>
@@ -1728,6 +2171,7 @@ function TouristDashboardContent() {
                         </div>
                       </div>
                     ))}
+                  </div>
                   </div>
                 </div>
               ))}
@@ -1817,7 +2261,15 @@ function TouristDashboardContent() {
               </div>
 
               <div className="bg-slate-900 p-4 rounded-2xl flex flex-col items-center justify-center space-y-2 text-white relative z-10 shadow-md">
-                <QrCode className="w-24 h-24 text-white" />
+                {backendPass?.qrImageUrl ? (
+                  <img
+                    src={assetUrl(backendPass.qrImageUrl)}
+                    alt="Tourist pass QR code"
+                    className="w-28 h-28 bg-white p-1 rounded-xl object-contain"
+                  />
+                ) : (
+                  <QrCode className="w-24 h-24 text-white" />
+                )}
                 <span className="text-[10px] font-extrabold text-slate-300 uppercase tracking-widest">Digital Check-in QR</span>
               </div>
             </div>
@@ -1941,14 +2393,26 @@ function TouristDashboardContent() {
               <div className="grid grid-cols-2 gap-3 pt-2">
                 <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl text-center space-y-1">
                   <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Auto Rickshaw</span>
-                  <span className="text-2xl font-extrabold text-amber-700 block">₹{cabDistance * 18 + 23}</span>
+                  <span className="text-2xl font-extrabold text-amber-700 block">₹{Math.round(fareQuote?.auto_fare ?? cabDistance * 18 + 23)}</span>
                   <span className="text-[9px] text-slate-500 block">(Suburbs Only)</span>
                 </div>
 
                 <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl text-center space-y-1">
                   <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Black-Yellow Taxi</span>
-                  <span className="text-2xl font-extrabold text-sky-700 block">₹{cabDistance * 24 + 50}</span>
+                  <span className="text-2xl font-extrabold text-sky-700 block">₹{Math.round(fareQuote?.cab_fare ?? cabDistance * 24 + 50)}</span>
                   <span className="text-[9px] text-slate-500 block">(City & Suburbs)</span>
+                </div>
+
+                <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl text-center space-y-1">
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Local Train</span>
+                  <span className="text-2xl font-extrabold text-emerald-700 block">₹{Math.round(fareQuote?.local_train_fare ?? cabDistance * 0.7 + 5)}</span>
+                  <span className="text-[9px] text-slate-500 block">(Second Class)</span>
+                </div>
+
+                <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl text-center space-y-1">
+                  <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">BEST Bus</span>
+                  <span className="text-2xl font-extrabold text-indigo-700 block">₹{Math.round(fareQuote?.best_bus_fare ?? cabDistance * 1.2 + 8)}</span>
+                  <span className="text-[9px] text-slate-500 block">(Ordinary)</span>
                 </div>
               </div>
 
@@ -2000,12 +2464,12 @@ function TouristDashboardContent() {
                 >
                   <div className="relative h-44 w-full bg-slate-100 overflow-hidden">
                     <img
-                      src={spot.image || "https://images.unsplash.com/photo-1570168007204-dfb528c6958f?auto=format&fit=crop&w=800&q=80"}
+                      src={spot.image || "https://commons.wikimedia.org/wiki/Special:FilePath/Mumbai_03-2016_30_Gateway_of_India.jpg?width=1280"}
                       alt={spot.name}
                       className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                       loading="lazy"
-                      onError={(e) => 
-                        (e.currentTarget as HTMLImageElement).src =
+                      onError={(e) => {
+                        e.currentTarget.src =
                           "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Mumbai_03-2016_30_Gateway_of_India.jpg/800px-Mumbai_03-2016_30_Gateway_of_India.jpg";
                       }}
                     />
@@ -2031,21 +2495,24 @@ function TouristDashboardContent() {
                   <div className="p-4 space-y-2.5">
                     <p className="text-xs text-slate-600 leading-relaxed">{spot.description}</p>
 
-                    <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
-                      <div className="flex items-center gap-2 text-slate-500 font-semibold text-[11px]">
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 text-xs">
+                      <div className="mr-auto flex items-center gap-2 text-slate-500 font-semibold text-[11px]">
                         <span className="text-amber-500 font-bold">⭐ {spot.rating}</span>
                         <span>•</span>
                         <span>{spot.distance}</span>
                       </div>
-
-                      <a
-                        href={`https://www.google.com/maps/search/?api=1&query=${spot.mapQuery}`}
-                        target="_blank"
-                        rel="noreferrer"
+                      <WebsiteLink href={spot.websiteUrl} label="Website" />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          const dest = await resolveMapCoords(spot);
+                          if (!dest) return;
+                          await startRouteTo({ lat: dest.lat, lng: dest.lng, name: spot.name });
+                        }}
                         className="bg-purple-50 hover:bg-purple-100 text-purple-800 font-extrabold px-3 py-1.5 rounded-xl border border-purple-200 flex items-center gap-1 transition-all text-[11px] shadow-2xs"
                       >
-                        Navigate <ExternalLink className="w-3 h-3" />
-                      </a>
+                        Navigate <Route className="w-3 h-3" />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -2069,7 +2536,18 @@ function TouristDashboardContent() {
 
             <div className="space-y-3">
               {nearbyHotels.map((hotel) => (
-                <div key={hotel.id} className="bg-white border border-slate-200 p-4 rounded-3xl space-y-2.5 shadow-sm">
+                <div key={hotel.id} className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
+                  {hotel.image && (
+                    <img
+                      src={hotel.image}
+                      alt={hotel.name}
+                      className="w-full h-36 object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                  )}
+                  <div className="p-4 space-y-2.5">
                   <div className="flex justify-between items-start">
                     <div>
                       <h3 className="font-bold text-sm text-slate-900">{hotel.name}</h3>
@@ -2082,9 +2560,8 @@ function TouristDashboardContent() {
 
                   <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs text-slate-500">
                     <span>⭐ {hotel.rating} • {hotel.distance}</span>
-                    <span className="text-[10px] bg-sky-100 text-sky-800 px-2 py-0.5 rounded-md border border-sky-200 font-bold">
-                      Verified Safety Desk
-                    </span>
+                    <WebsiteLink href={hotel.websiteUrl} label="Book / site" />
+                  </div>
                   </div>
                 </div>
               ))}
@@ -2107,7 +2584,18 @@ function TouristDashboardContent() {
 
             <div className="space-y-3">
               {mustTryFood.map((food) => (
-                <div key={food.id} className="bg-white border border-slate-200 p-4 rounded-3xl space-y-2.5 shadow-sm">
+                <div key={food.id} className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
+                  {food.image && (
+                    <img
+                      src={food.image}
+                      alt={food.name}
+                      className="w-full h-36 object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                  )}
+                  <div className="p-4 space-y-2.5">
                   <div className="flex justify-between items-start">
                     <div>
                       <h3 className="font-bold text-sm text-slate-900">{food.name}</h3>
@@ -2122,6 +2610,8 @@ function TouristDashboardContent() {
                   </div>
 
                   <p className="text-xs text-slate-600">{food.description}</p>
+                  <WebsiteLink href={food.websiteUrl} label="Website" />
+                  </div>
                 </div>
               ))}
             </div>
@@ -2131,7 +2621,7 @@ function TouristDashboardContent() {
       </div>
 
       {/* Bottom Dock Navigation */}
-      <nav className="fixed bottom-3 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm bg-white/90 backdrop-blur-xl border border-slate-200/90 p-2 rounded-3xl flex justify-around items-center z-30 shadow-lg shadow-slate-200/80">
+      <nav className="fixed bottom-3 left-1/2 -translate-x-1/2 w-[calc(100%-2rem)] max-w-sm bg-white/90 backdrop-blur-xl border border-slate-200/90 p-2 rounded-3xl flex justify-around items-center z-30 shadow-lg shadow-slate-200/80 mb-[env(safe-area-inset-bottom)]">
         {[
           { id: "home", label: "Map", icon: Home },
           { id: "mmr-guide", label: "MMR", icon: Compass },

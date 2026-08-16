@@ -14,9 +14,12 @@ class Attraction(Base):
     rating = Column(Float, default=0.0)
     distance = Column(String(40), nullable=True)  # display string e.g. "1.2 km" (kept as text like the mock)
     safety_status = Column(String(60), nullable=True)  # e.g. "Safe Zone ✓"
-    image = Column(String(500), nullable=True)
+    image = Column(String(1000), nullable=True)  # direct https photo URL
+    website_url = Column(String(1000), nullable=True)  # official / Wikipedia page
     description = Column(Text, nullable=True)
-    map_query = Column(String(200), nullable=True)  # used to build the Google Maps search URL
+    map_query = Column(String(200), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)  # used to build the Google Maps search URL
 
 
 class Hotel(Base):
@@ -30,6 +33,10 @@ class Hotel(Base):
     price_range = Column(String(60), nullable=True)  # "₹22,000 / night"
     distance = Column(String(40), nullable=True)
     description = Column(Text, nullable=True)
+    image = Column(String(1000), nullable=True)
+    website_url = Column(String(1000), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
 
 
 class FoodSpot(Base):
@@ -43,6 +50,10 @@ class FoodSpot(Base):
     rating = Column(Float, default=0.0)
     distance = Column(String(40), nullable=True)
     description = Column(Text, nullable=True)
+    image = Column(String(1000), nullable=True)
+    website_url = Column(String(1000), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
 
 
 class EmergencyServiceCategory(Base):
@@ -66,6 +77,10 @@ class EmergencyServiceItem(Base):
     phone = Column(String(20), nullable=False)
     distance = Column(String(40), nullable=True)
     location = Column(String(100), nullable=True)
+    website_url = Column(String(1000), nullable=True)
+    image = Column(String(1000), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
 
     category_ref = relationship("EmergencyServiceCategory", back_populates="items")
 
@@ -80,6 +95,8 @@ class LocalScam(Base):
     severity = Column(String(30), nullable=False)  # "High Risk" | "Moderate" | "Low Risk"
     description = Column(Text, nullable=True)
     prevention = Column(Text, nullable=True)
+    image = Column(String(1000), nullable=True)
+    website_url = Column(String(1000), nullable=True)
 
 
 class PhraseCategory(Base):
@@ -112,6 +129,7 @@ class SmartItinerary(Base):
     slug = Column(String(60), unique=True, nullable=False)
     title = Column(String(150), nullable=False)
     subtitle = Column(String(255), nullable=True)
+    image = Column(String(1000), nullable=True)
 
     time_slots = relationship("SmartItineraryTimeSlot", back_populates="itinerary", cascade="all, delete-orphan", order_by="SmartItineraryTimeSlot.id")
 
@@ -140,6 +158,8 @@ class MMRArea(Base):
     safety_tag = Column(String(150), nullable=True)
     vibe = Column(Text, nullable=True)
     transit_and_safety_tip = Column(Text, nullable=True)
+    image = Column(String(1000), nullable=True)
+    website_url = Column(String(1000), nullable=True)
 
     recommended_spots = relationship("MMRAreaSpot", back_populates="area", cascade="all, delete-orphan")
     food_highlights = relationship("MMRAreaFood", back_populates="area", cascade="all, delete-orphan")
@@ -154,6 +174,8 @@ class MMRAreaSpot(Base):
     type = Column(String(80), nullable=True)
     description = Column(Text, nullable=True)
     highlight = Column(String(120), nullable=True)
+    image = Column(String(1000), nullable=True)
+    website_url = Column(String(1000), nullable=True)
 
     area = relationship("MMRArea", back_populates="recommended_spots")
 

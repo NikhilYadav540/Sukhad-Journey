@@ -4,13 +4,15 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     database_url: str = "sqlite:///./sukhad_journey.db"
+    supabase_url: str = ""
     secret_key: str = "dev-secret-key"
     access_token_expire_minutes: int = 60
     otp_expire_seconds: int = 300
     sms_provider_api_key: str = ""
+    google_client_id: str = ""
     emergency_helpline_number: str = "112"
     environment: str = "development"
-    cors_origins: str = "http://localhost:5173,http://localhost:3000"
+    cors_origins: str = "http://localhost:5173,http://localhost:3000,http://127.0.0.1:3000,http://127.0.0.1:5173"
 
     class Config:
         env_file = ".env"

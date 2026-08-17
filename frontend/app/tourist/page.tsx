@@ -57,6 +57,8 @@ import {
   ShoppingBasket,
   Store,
   Route,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import {
   authApi, passApi, emergencyApi, contentApi, trainApi, fareApi,
@@ -466,12 +468,11 @@ function TouristDashboardContent() {
   const [animateLogo, setAnimateLogo] = useState(false);
 
   // Multi-step Registration Form State
-  const [authStep, setAuthStep] = useState<"phone" | "otp" | "profile">("phone");
-  const [countryCode, setCountryCode] = useState("+91");
-  const [authPhone, setAuthPhone] = useState("");
-  const [authOtp, setAuthOtp] = useState("");
-  const [devOtp, setDevOtp] = useState<string | null>(null);
-  const [smsNotice, setSmsNotice] = useState<string | null>(null);
+  const [authStep, setAuthStep] = useState<"credentials" | "profile">("credentials");
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [authIdentifier, setAuthIdentifier] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   // Profile Fields
   const [fullName, setFullName] = useState("");
@@ -483,10 +484,6 @@ function TouristDashboardContent() {
     { name: "", phone: "", relation: "Friend" },
     { name: "", phone: "", relation: "Friend" },
   ]);
-
-  // OTP Timer State
-  const [resendTimer, setResendTimer] = useState(60);
-  const [isTimerActive, setIsTimerActive] = useState(false);
 
   const [activeSection, setActiveSection] = useState<
     | "home"
@@ -513,7 +510,7 @@ function TouristDashboardContent() {
   // ---- Backend-backed auth/session state ----
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [backendProfile, setBackendProfile] = useState<{
-    full_name: string | null; email: string | null; phone_number: string;
+    full_name: string | null; email: string | null; phone_number: string | null;
     date_of_birth: string | null; gender: string | null;
     emergency_contact_name: string | null; emergency_contact_phone: string | null;
   } | null>(null);
@@ -601,11 +598,7 @@ function TouristDashboardContent() {
   const touristUser = {
     fullName: backendProfile?.full_name || "Guest Traveler",
     email: backendProfile?.email || "Not provided",
-    phone: backendProfile
-      ? (backendProfile.phone_number.startsWith("+")
-          ? backendProfile.phone_number
-          : `${countryCode} ${backendProfile.phone_number}`)
-      : "Unverified (Guest Mode)",
+    phone: backendProfile?.phone_number || "Unverified (Guest Mode)",
     dob: backendProfile?.date_of_birth || "Not specified",
     gender: backendProfile?.gender || "Not specified",
     emergencyContact: backendProfile?.emergency_contact_name
@@ -703,50 +696,8 @@ function TouristDashboardContent() {
     return () => clearTimeout(timer);
   }, [showSplash]);
 
-  // 3. 60-SECOND COUNTDOWN TIMER FOR OTP
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isTimerActive && resendTimer > 0) {
-      interval = setInterval(() => {
-        setResendTimer((prev) => prev - 1);
-      }, 1000);
-    } else if (resendTimer === 0) {
-      setIsTimerActive(false);
-    }
-    return () => clearInterval(interval);
-  }, [isTimerActive, resendTimer]);
+  // Handlers for authentication and session management
 
-  const startResendTimer = () => {
-    setResendTimer(60);
-    setIsTimerActive(true);
-  };
-
-  const sendOtpToPhone = () => {
-    const cleanedPhone = authPhone.replace(/\s+/g, "");
-    if (!/^\d{10}$/.test(cleanedPhone)) {
-      setAuthError("Enter a valid 10-digit Indian mobile number.");
-      return;
-    }
-    setAuthError(null);
-    setAuthLoading(true);
-    authApi
-      .requestOtp(`${countryCode}${cleanedPhone}`)
-      .then((res) => {
-        const code = (res?.dev_otp || "").trim();
-        setAuthStep("otp");
-        startResendTimer();
-        if (code) {
-          setDevOtp(code);
-          setAuthOtp(code);
-          setSmsNotice(res.message || "SMS did not send. Use the on-screen OTP.");
-        } else {
-          setDevOtp(null);
-          setSmsNotice("No SMS was delivered. Check the backend terminal for [OTP] and type that code.");
-        }
-      })
-      .catch((err) => setAuthError(err.message || "Couldn't send OTP. Please try again."))
-      .finally(() => setAuthLoading(false));
-  };
 
   const speakPhrase = (text: string) => {
     if ("speechSynthesis" in window) {
@@ -902,23 +853,48 @@ function TouristDashboardContent() {
     setIsMenuOpen(false);
   };
 
-  // Registration Auth Steps — now backed by real OTP requests/verification
-  const handlePhoneSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    sendOtpToPhone();
-  };
-
-  const handleOtpSubmit = (e: React.FormEvent) => {
+  // Registration & Login Auth Handlers (Mobile / Email + Password)
+  const handleAuthSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError(null);
-    if (authOtp.length < 6) return;
+    if (!authIdentifier.trim() || !authPassword) {
+      setAuthError("Please fill in all required fields.");
+      return;
+    }
 
     setAuthLoading(true);
-    const cleanedPhone = authPhone.replace(/\s+/g, "");
+
+    if (authMode === "login") {
+      authApi
+        .login({
+          identifier: authIdentifier.trim(),
+          password: authPassword,
+        })
+        .then(({ access_token, is_new_user }) => finishAuthSession(access_token, is_new_user))
+        .catch((err) => setAuthError(err.message || "Invalid mobile/email or password."))
+        .finally(() => setAuthLoading(false));
+    } else {
+      const isEmail = authIdentifier.includes("@");
+      authApi
+        .signup({
+          email: isEmail ? authIdentifier.trim().toLowerCase() : undefined,
+          phone_number: !isEmail ? authIdentifier.trim() : undefined,
+          password: authPassword,
+          full_name: fullName.trim() || undefined,
+        })
+        .then(({ access_token, is_new_user }) => finishAuthSession(access_token, is_new_user))
+        .catch((err) => setAuthError(err.message || "Could not complete signup. Please try again."))
+        .finally(() => setAuthLoading(false));
+    }
+  };
+
+  const handleDemoLogin = () => {
+    setAuthError(null);
+    setAuthLoading(true);
     authApi
-      .verifyOtp(`${countryCode}${cleanedPhone}`, authOtp)
+      .login({ identifier: "tourist1", password: "pass1234" })
       .then(({ access_token, is_new_user }) => finishAuthSession(access_token, is_new_user))
-      .catch((err) => setAuthError(err.message || "Invalid or expired OTP."))
+      .catch((err) => setAuthError(err.message || "Demo login failed."))
       .finally(() => setAuthLoading(false));
   };
 
@@ -937,13 +913,14 @@ function TouristDashboardContent() {
             setBackendPass(pass);
             setHasPassPreview(true);
             setShowAuthModal(false);
-            setAuthStep("phone");
+            setAuthStep("credentials");
             setShowRegistrationIntro(true);
           });
       }
       setAuthStep("profile");
     });
   };
+
 
   const handleGoogleAuth = async () => {
     setAuthError(null);
@@ -1014,7 +991,7 @@ function TouristDashboardContent() {
         setBackendPass(pass);
         setHasPassPreview(true);
         setShowAuthModal(false);
-        setAuthStep("phone");
+        setAuthStep("credentials");
         setShowRegistrationIntro(true);
       })
       .catch((err) => setAuthError(err.message || "Couldn't complete registration."))
@@ -1105,7 +1082,7 @@ function TouristDashboardContent() {
         }}
         onOpenAuth={() => {
           setShowOverview(false);
-          setAuthStep("phone");
+          setAuthStep("credentials");
           setShowAuthModal(true);
         }}
       />
@@ -1203,7 +1180,7 @@ function TouristDashboardContent() {
             <button
               onClick={() => {
                 setShowAuthModal(false);
-                setAuthStep("phone");
+                setAuthStep("credentials");
               }}
               className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-700 bg-slate-100 rounded-full"
             >
@@ -1213,15 +1190,15 @@ function TouristDashboardContent() {
             {/* Step Progress Header */}
             <div className="space-y-2">
               <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                <span>{authStep === "profile" ? "Step 2 of 2: Profile Info" : "Step 1 of 2: Verification"}</span>
+                <span>{authStep === "profile" ? "Step 2 of 2: Profile Info" : "Step 1 of 2: Authentication"}</span>
                 <span className="text-emerald-700 font-mono">
-                  {authStep === "phone" ? "33%" : authStep === "otp" ? "66%" : "100%"}
+                  {authStep === "credentials" ? "50%" : "100%"}
                 </span>
               </div>
               <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                 <div
                   className="bg-emerald-600 h-full transition-all duration-300"
-                  style={{ width: authStep === "phone" ? "33%" : authStep === "otp" ? "66%" : "100%" }}
+                  style={{ width: authStep === "credentials" ? "50%" : "100%" }}
                 />
               </div>
             </div>
@@ -1231,17 +1208,18 @@ function TouristDashboardContent() {
                 {authStep === "profile" ? <User className="w-6 h-6" /> : <ShieldCheck className="w-6 h-6" />}
               </div>
               <h2 className="text-lg font-black text-slate-900">
-                {authStep === "phone" && "Quick Verification"}
-                {authStep === "otp" && "Enter Security Code"}
-                {authStep === "profile" && "Complete Tourist Profile"}
+                {authStep === "profile"
+                  ? "Complete Tourist Profile"
+                  : authMode === "login"
+                  ? "Tourist Login"
+                  : "Create Tourist Account"}
               </h2>
               <p className="text-xs text-slate-500">
-                {authStep === "phone" && "Login or sign up with your Indian mobile number. We’ll send a 6-digit OTP."}
-                {authStep === "otp" &&
-                  (smsNotice
-                    ? `Fast2SMS did not deliver SMS to ${countryCode} ${authPhone}. Use the code below.`
-                    : `We sent a 6-digit OTP code to ${countryCode} ${authPhone}.`)}
-                {authStep === "profile" && "Add your details and 2–3 friend numbers used if you tap SOS."}
+                {authStep === "profile"
+                  ? "Add your details and emergency contacts for your digital pass."
+                  : authMode === "login"
+                  ? "Sign in with your mobile number or email and password."
+                  : "Register with your mobile or email to get your safety pass."}
               </p>
               {authError && (
                 <p className="text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
@@ -1250,58 +1228,145 @@ function TouristDashboardContent() {
               )}
             </div>
 
-            {/* STEP 1: PHONE & SOCIAL AUTH */}
-            {authStep === "phone" && (
-              <form onSubmit={handlePhoneSubmit} className="space-y-4">
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
-                    Mobile Phone Number
-                  </label>
-                  <div className="flex gap-2">
-                    <select
-                      value={countryCode}
-                      onChange={(e) => setCountryCode(e.target.value)}
-                      className="bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 px-2 py-3 focus:outline-none focus:border-emerald-500 shrink-0"
-                    >
-                      <option value="+91">+91 (IN)</option>
-                    </select>
+            {/* STEP 1: LOGIN / SIGNUP CREDENTIALS */}
+            {authStep === "credentials" && (
+              <div className="space-y-4">
+                {/* Tab Switcher: Login vs Signup */}
+                <div className="flex bg-slate-100 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode("login");
+                      setAuthError(null);
+                    }}
+                    className={`flex-1 py-2 text-xs font-extrabold rounded-lg transition-all ${
+                      authMode === "login"
+                        ? "bg-white text-emerald-800 shadow-sm"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    Log In
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode("signup");
+                      setAuthError(null);
+                    }}
+                    className={`flex-1 py-2 text-xs font-extrabold rounded-lg transition-all ${
+                      authMode === "signup"
+                        ? "bg-white text-emerald-800 shadow-sm"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    Sign Up
+                  </button>
+                </div>
 
-                    <div className="relative flex-1">
-                      <Phone className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
+                <form onSubmit={handleAuthSubmit} className="space-y-3.5">
+                  {authMode === "signup" && (
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
+                        Full Name
+                      </label>
+                      <div className="relative">
+                        <User className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
+                        <input
+                          type="text"
+                          placeholder="e.g. Aarav Sharma"
+                          value={fullName}
+                          onChange={(e) => setFullName(e.target.value)}
+                          className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-emerald-500"
+                          required={authMode === "signup"}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
+                      Mobile Number or Email
+                    </label>
+                    <div className="relative">
+                      <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
                       <input
-                        type="tel"
-                        placeholder="98765 43210"
-                        value={authPhone}
-                        onChange={(e) => setAuthPhone(e.target.value)}
-                        className="w-full pl-9 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 focus:outline-none focus:border-emerald-500"
+                        type="text"
+                        placeholder="e.g. tourist1@example.com or 9876543210"
+                        value={authIdentifier}
+                        onChange={(e) => setAuthIdentifier(e.target.value)}
+                        className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-emerald-500"
                         required
                       />
                     </div>
                   </div>
-                </div>
 
-                <button
-                  type="submit"
-                  disabled={authLoading}
-                  className="w-full bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-400 text-white font-extrabold py-3.5 rounded-xl text-xs transition-all shadow-md shadow-emerald-200 flex items-center justify-center gap-1.5"
-                >
-                  {authLoading ? "Sending OTP…" : "Send OTP Code"} <ArrowRight className="w-4 h-4" />
-                </button>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
+                      Password
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        placeholder="••••••••"
+                        value={authPassword}
+                        onChange={(e) => setAuthPassword(e.target.value)}
+                        className="w-full pl-9 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 focus:outline-none focus:border-emerald-500"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-3 top-3 text-slate-400 hover:text-slate-600"
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={authLoading}
+                    className="w-full bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-400 text-white font-extrabold py-3 rounded-xl text-xs transition-all shadow-md shadow-emerald-200 flex items-center justify-center gap-1.5 mt-2"
+                  >
+                    {authLoading ? (
+                      "Please wait…"
+                    ) : authMode === "login" ? (
+                      <>
+                        <span>Log In</span> <ArrowRight className="w-4 h-4" />
+                      </>
+                    ) : (
+                      <>
+                        <span>Sign Up & Continue</span> <ArrowRight className="w-4 h-4" />
+                      </>
+                    )}
+                  </button>
+                </form>
 
                 <div className="relative flex py-1 items-center">
                   <div className="flex-grow border-t border-slate-200"></div>
                   <span className="flex-shrink mx-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                    Or Continue With
+                    Or Quick Demo
                   </span>
                   <div className="flex-grow border-t border-slate-200"></div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={authLoading}
+                  onClick={handleDemoLogin}
+                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 disabled:opacity-60 text-white rounded-xl py-2.5 text-xs font-extrabold transition-all shadow-md shadow-violet-200"
+                >
+                  <User className="w-4 h-4" />
+                  {authLoading ? "Signing in…" : "Quick Demo Login (tourist1 / pass1234)"}
+                </button>
+
+                <div className="grid grid-cols-2 gap-2 pt-1">
                   <button
                     type="button"
                     disabled={authLoading}
                     onClick={() => handleSocialAuth("Google")}
-                    className="flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl py-2.5 text-xs font-bold text-slate-700 transition-all disabled:opacity-60"
+                    className="flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-xl py-2 text-xs font-bold text-slate-700 transition-all disabled:opacity-60"
                   >
                     <svg className="w-4 h-4" viewBox="0 0 24 24">
                       <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
@@ -1315,7 +1380,7 @@ function TouristDashboardContent() {
                   <button
                     type="button"
                     onClick={() => handleSocialAuth("Apple")}
-                    className="flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl py-2.5 text-xs font-bold transition-all"
+                    className="flex items-center justify-center gap-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl py-2 text-xs font-bold transition-all"
                   >
                     <svg className="w-4 h-4 fill-current" viewBox="0 0 24 24">
                       <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 4.28c.67-.81 1.12-1.94.99-3.07-.96.04-2.13.64-2.82 1.44-.61.71-1.15 1.87-1.01 2.98 1.08.08 2.17-.54 2.84-1.35z" />
@@ -1323,71 +1388,9 @@ function TouristDashboardContent() {
                     Apple
                   </button>
                 </div>
-              </form>
+              </div>
             )}
 
-            {/* STEP 1b: OTP ENTRY & COUNTDOWN TIMER */}
-            {authStep === "otp" && (
-              <form onSubmit={handleOtpSubmit} className="space-y-4">
-                {devOtp && (
-                  <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-3 text-center">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">
-                      SMS did not send — use this OTP
-                    </p>
-                    <p className="mt-1 font-mono text-2xl font-black tracking-[0.4em] text-slate-900">{devOtp}</p>
-                    <p className="mt-1 text-[10px] text-amber-800">
-                      Fast2SMS is blocking delivery until the wallet has a ₹100 top-up and OTP website verification.
-                    </p>
-                  </div>
-                )}
-                <div>
-                  <label className="text-[10px] font-bold text-slate-600 uppercase tracking-wider block mb-1">
-                    6-Digit Verification Code
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" />
-                    <input
-                      type="text"
-                      placeholder="• • • •"
-                      maxLength={6}
-                      value={authOtp}
-                      onChange={(e) => setAuthOtp(e.target.value)}
-                      className="w-full pl-9 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-slate-900 tracking-widest text-center focus:outline-none focus:border-emerald-500"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between text-xs px-1">
-                  <button
-                    type="button"
-                    onClick={() => setAuthStep("phone")}
-                    className="text-slate-500 hover:text-slate-800 font-semibold underline text-[11px]"
-                  >
-                    Change Number
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={isTimerActive || authLoading}
-                    onClick={sendOtpToPhone}
-                    className={`font-bold text-[11px] ${
-                      isTimerActive ? "text-slate-400 cursor-not-allowed" : "text-emerald-700 hover:underline"
-                    }`}
-                  >
-                    {isTimerActive ? `Resend Code in ${resendTimer}s` : "Resend Code"}
-                  </button>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={authLoading}
-                  className="w-full bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-400 text-white font-extrabold py-3.5 rounded-xl text-xs transition-all shadow-md shadow-emerald-200"
-                >
-                  {authLoading ? "Verifying…" : "Verify OTP & Proceed"}
-                </button>
-              </form>
-            )}
 
             {/* STEP 2: PROFILE DETAILS */}
             {authStep === "profile" && (
@@ -1764,7 +1767,7 @@ function TouristDashboardContent() {
             </div>
             <button
               onClick={() => {
-                setAuthStep("phone");
+                setAuthStep("credentials");
                 setShowAuthModal(true);
               }}
               className="bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-extrabold px-3 py-1.5 rounded-xl shadow-xs shrink-0"
@@ -2227,7 +2230,7 @@ function TouristDashboardContent() {
               {!hasPassPreview ? (
                 <button
                   onClick={() => {
-                    setAuthStep("phone");
+                    setAuthStep("credentials");
                     setShowAuthModal(true);
                   }}
                   className="w-full bg-emerald-700 hover:bg-emerald-800 text-white font-extrabold py-2.5 rounded-2xl text-xs transition-all shadow-sm"
@@ -2558,9 +2561,22 @@ function TouristDashboardContent() {
 
                   <p className="text-xs text-slate-600">{hotel.description}</p>
 
-                  <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs text-slate-500">
-                    <span>⭐ {hotel.rating} • {hotel.distance}</span>
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 text-xs">
+                    <div className="mr-auto text-slate-500 font-semibold text-[11px]">
+                      <span>⭐ {hotel.rating} • {hotel.distance}</span>
+                    </div>
                     <WebsiteLink href={hotel.websiteUrl} label="Book / site" />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const dest = await resolveMapCoords(hotel);
+                        if (!dest) return;
+                        await startRouteTo({ lat: dest.lat, lng: dest.lng, name: hotel.name });
+                      }}
+                      className="bg-pink-50 hover:bg-pink-100 text-pink-800 font-extrabold px-3 py-1.5 rounded-xl border border-pink-200 flex items-center gap-1 transition-all text-[11px] shadow-2xs"
+                    >
+                      Navigate <Route className="w-3 h-3" />
+                    </button>
                   </div>
                   </div>
                 </div>
@@ -2610,7 +2626,24 @@ function TouristDashboardContent() {
                   </div>
 
                   <p className="text-xs text-slate-600">{food.description}</p>
-                  <WebsiteLink href={food.websiteUrl} label="Website" />
+                   
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 text-xs">
+                    <div className="mr-auto text-slate-500 font-semibold text-[11px]">
+                      <span>{food.distance || "Nearby"}</span>
+                    </div>
+                    <WebsiteLink href={food.websiteUrl} label="Website" />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const dest = await resolveMapCoords(food);
+                        if (!dest) return;
+                        await startRouteTo({ lat: dest.lat, lng: dest.lng, name: food.name });
+                      }}
+                      className="bg-orange-50 hover:bg-orange-100 text-orange-800 font-extrabold px-3 py-1.5 rounded-xl border border-orange-200 flex items-center gap-1 transition-all text-[11px] shadow-2xs"
+                    >
+                      Navigate <Route className="w-3 h-3" />
+                    </button>
+                  </div>
                   </div>
                 </div>
               ))}

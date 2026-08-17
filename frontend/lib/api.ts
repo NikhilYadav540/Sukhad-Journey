@@ -108,16 +108,16 @@ async function request<T>(
 
 // ---------------- Auth ----------------
 export const authApi = {
-  requestOtp: (phone_number: string) =>
-    request<{ ok: boolean; message: string; sms_sent: boolean; dev_otp?: string | null }>(
-      "/api/auth/request-otp",
-      { method: "POST", body: JSON.stringify({ phone_number }) }
+  signup: (payload: { email?: string; phone_number?: string; password: string; full_name?: string }) =>
+    request<{ access_token: string; token_type: string; is_new_user: boolean }>(
+      "/api/auth/signup",
+      { method: "POST", body: JSON.stringify(payload) }
     ),
 
-  verifyOtp: (phone_number: string, otp_code: string) =>
+  login: (payload: { identifier: string; password: string }) =>
     request<{ access_token: string; token_type: string; is_new_user: boolean }>(
-      "/api/auth/verify-otp",
-      { method: "POST", body: JSON.stringify({ phone_number, otp_code }) }
+      "/api/auth/login",
+      { method: "POST", body: JSON.stringify(payload) }
     ),
 
   googleLogin: (payload: { credential?: string; access_token?: string }) =>
@@ -205,11 +205,13 @@ export interface HotelDTO {
   id: number; name: string; category: string; rating: number;
   priceRange: string | null; distance: string | null; description: string | null;
   image?: string | null; websiteUrl?: string | null;
+  latitude?: number | null; longitude?: number | null;
 }
 export interface FoodSpotDTO {
   id: number; name: string; cuisine: string; mustTryDish: string | null;
   rating: number; distance: string | null; description: string | null;
   image?: string | null; websiteUrl?: string | null;
+  latitude?: number | null; longitude?: number | null;
 }
 export interface EmergencyServiceCategoryDTO {
   category: string; icon_key: string; color: string | null;

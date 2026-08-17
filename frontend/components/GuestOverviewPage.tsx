@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import {
   Sparkles,
   ShieldAlert,
@@ -32,7 +33,15 @@ export default function GuestOverviewPage({
   return (
     <div className="relative min-h-screen bg-[#f8fafc] text-slate-800 p-4 max-w-md mx-auto font-sans pb-12">
       <div className="relative z-10 space-y-5">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <Link
+          href="/police"
+          className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-white px-3 py-1.5 text-[10px] font-extrabold text-red-700 shadow-sm transition-colors hover:bg-red-50"
+          aria-label="Login as Police"
+        >
+          <ShieldAlert className="h-3.5 w-3.5" />
+          Login as Police
+        </Link>
         <button
           onClick={onOpenAuth}
           className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-white px-3 py-1.5 text-[10px] font-extrabold text-emerald-800 shadow-sm transition-colors hover:bg-emerald-50"
@@ -207,6 +216,15 @@ export default function GuestOverviewPage({
           <UserCheck className="w-4 h-4 text-emerald-600" />
           <span>Register / Login for Digital ID Pass</span>
         </button>
+
+        <Link
+          href="/police"
+          className="w-full bg-slate-900 hover:bg-slate-800 text-white border border-slate-700 font-bold py-3 px-4 rounded-2xl flex items-center justify-center gap-2 transition-all text-xs"
+        >
+          <ShieldAlert className="w-4 h-4 text-red-400" />
+          <span>Login as Police Officer</span>
+          <ArrowRight className="w-4 h-4 ml-auto" />
+        </Link>
       </div>
 
       {/* 5. WHAT SUKHAD-JOURNEY DOES */}

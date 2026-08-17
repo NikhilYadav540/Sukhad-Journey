@@ -66,6 +66,7 @@ OPTIONAL_COLUMNS = [
     ("emergency_service_items", "latitude", "DOUBLE PRECISION"),
     ("emergency_service_items", "longitude", "DOUBLE PRECISION"),
     ("users", "google_sub", "VARCHAR(128)"),
+    ("users", "password_hash", "VARCHAR(255)"),
 ]
 
 

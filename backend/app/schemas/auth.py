@@ -1,20 +1,16 @@
 from pydantic import BaseModel, Field
 
 
-class OTPRequest(BaseModel):
-    phone_number: str = Field(..., examples=["+919876543210"])
+class SignupRequest(BaseModel):
+    email: str | None = None
+    phone_number: str | None = None
+    password: str = Field(..., min_length=4)
+    full_name: str | None = None
 
 
-class OTPSentResponse(BaseModel):
-    ok: bool = True
-    message: str = "OTP sent"
-    sms_sent: bool = True
-    dev_otp: str | None = None
-
-
-class OTPVerify(BaseModel):
-    phone_number: str
-    otp_code: str = Field(..., min_length=4, max_length=6)
+class LoginRequest(BaseModel):
+    identifier: str  # email or phone number
+    password: str
 
 
 class TokenResponse(BaseModel):

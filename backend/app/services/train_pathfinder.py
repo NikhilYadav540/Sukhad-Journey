@@ -72,7 +72,24 @@ def _build_response(db: Session, origin_name: str, destination_name: str, path: 
     total_stops = sum(leg.num_stops for leg in legs)
     interchange_count = len(legs) - 1
     duration = round(total_stops * AVG_MINUTES_PER_STOP + interchange_count * INTERCHANGE_PENALTY_MINUTES)
-    fare = round(FARE_BASE + total_stops * FARE_PER_STOP + interchange_count * INTERCHANGE_FARE_SURCHARGE)
+    
+    # Calculate realistic Mumbai local train fare (multiples of 5)
+    if total_stops == 0:
+        fare = 0
+    elif total_stops <= 4:
+        fare = 5
+    elif total_stops <= 10:
+        fare = 10
+    elif total_stops <= 20:
+        fare = 15
+    elif total_stops <= 35:
+        fare = 20
+    else:
+        fare = 25
+
+    if interchange_count > 0:
+        fare += 5
+
 
     line_display = " -> ".join(dict.fromkeys(leg.line for leg in legs))  # de-duped, ordered
     interchange_msg = None

@@ -23,8 +23,8 @@ export default function PoliceDashboard() {
   const [officerName, setOfficerName] = useState<string>("");
   const [precinct, setPrecinct] = useState<string | null>(null);
 
-  const [badgeId, setBadgeId] = useState("12345");
-  const [password, setPassword] = useState("12345");
+  const [badgeId, setBadgeId] = useState("MUM-1024");
+  const [password, setPassword] = useState("demo1234");
   const [loginError, setLoginError] = useState<string | null>(null);
   const [loginLoading, setLoginLoading] = useState(false);
 

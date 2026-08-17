@@ -42,6 +42,8 @@ class HotelOut(BaseModel):
     description: str | None
     image: str | None = None
     websiteUrl: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
 
     @classmethod
     def from_orm_custom(cls, obj):
@@ -50,6 +52,8 @@ class HotelOut(BaseModel):
             priceRange=obj.price_range, distance=obj.distance, description=obj.description,
             image=public_media_url(getattr(obj, "image", None), "hotels"),
             websiteUrl=getattr(obj, "website_url", None),
+            latitude=getattr(obj, "latitude", None),
+            longitude=getattr(obj, "longitude", None),
         )
 
 
@@ -63,6 +67,8 @@ class FoodSpotOut(BaseModel):
     description: str | None
     image: str | None = None
     websiteUrl: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
 
     @classmethod
     def from_orm_custom(cls, obj):
@@ -71,6 +77,8 @@ class FoodSpotOut(BaseModel):
             rating=obj.rating, distance=obj.distance, description=obj.description,
             image=public_media_url(getattr(obj, "image", None), "food"),
             websiteUrl=getattr(obj, "website_url", None),
+            latitude=getattr(obj, "latitude", None),
+            longitude=getattr(obj, "longitude", None),
         )
 
 
